@@ -13,22 +13,22 @@
       <table>
         <thead>
           <tr>
-            <th v-repeat="key: columns"
-              v-on="click:sortBy(key)"
-              v-class="active: sortKey == key">
+            <th v-for="key in columns"
+              @click="sortBy(key)"
+              :class="{active: sortKey == key}">
               {{key | capitalize}}
               <span class="arrow"
-                v-class="reversed[key] ? 'dsc' : 'asc'">
+                :class="sortOrders[key] > 0 ? 'asc' : 'dsc'">
               </span>
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-repeat="
-            entry: data
+          <tr v-for="
+            entry in data
             | filterBy filterKey
-            | orderBy sortKey reversed[sortKey]">
-            <td v-repeat="key: columns">
+            | orderBy sortKey sortOrders[sortKey]">
+            <td v-for="key in columns">
               {{entry[key]}}
             </td>
           </tr>
@@ -42,9 +42,9 @@
         Search <input name="query" v-model="searchQuery">
       </form>
       <demo-grid
-        data="{{gridData}}"
-        columns="{{gridColumns}}"
-        filter-key="{{searchQuery}}">
+        :data="gridData"
+        :columns="gridColumns"
+        :filter-key="searchQuery">
       </demo-grid>
     </div>
 

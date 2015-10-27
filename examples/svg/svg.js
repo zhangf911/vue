@@ -10,7 +10,9 @@ var stats = [
 
 // A resusable polygon graph component
 Vue.component('polygraph', {
+  props: ['stats'],
   template: '#polygraph-template',
+  replace: true,
   computed: {
     // a computed property for the polygon's points
     points: function () {
@@ -24,12 +26,19 @@ Vue.component('polygraph', {
   components: {
     // a sub component for the labels
     'axis-label': {
+      props: {
+        stat: Object,
+        index: Number,
+        total: Number
+      },
+      template: '#axis-label-template',
+      replace: true,
       computed: {
         point: function () {
           return valueToPoint(
-            +this.value + 10,
-            this.$index,
-            this.$parent.stats.length
+            +this.stat.value + 10,
+            this.index,
+            this.total
           )
         }
       }
@@ -71,7 +80,7 @@ new Vue({
     },
     remove: function (stat) {
       if (this.stats.length > 3) {
-        this.stats.$remove(stat.$data)
+        this.stats.$remove(stat)
       } else {
         alert('Can\'t delete more!')
       }

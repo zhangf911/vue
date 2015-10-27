@@ -1,4 +1,4 @@
-var apiURL = 'https://api.github.com/repos/yyx990803/vue/commits?per_page=3&sha='
+var apiURL = 'https://api.github.com/repos/vuejs/vue/commits?per_page=3&sha='
 var isPhantom = navigator.userAgent.indexOf('PhantomJS') > -1
 
 /**
@@ -7,8 +7,7 @@ var isPhantom = navigator.userAgent.indexOf('PhantomJS') > -1
 
 var mocks = {
   master: [{sha:'111111111111', commit: {message:'one', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}}],
-  dev: [{sha:'222222222222', commit: {message:'two', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}}],
-  next: [{sha:'333333333333', commit: {message:'three', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}}]
+  dev: [{sha:'222222222222', commit: {message:'two', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}},{sha:'111111111111', commit: {message:'hi', author:{name:'Evan',date:'2014-10-15T13:52:58Z'}}}]
 }
 
 function mockData () {
@@ -24,16 +23,17 @@ var demo = new Vue({
   el: '#demo',
 
   data: {
-    branches: ['master', 'dev', 'next'],
+    branches: ['master', 'dev'],
     currentBranch: 'master',
     commits: null
   },
 
   created: function () {
     this.fetchData()
-    this.$watch('currentBranch', function () {
-      this.fetchData()
-    })
+  },
+
+  watch: {
+    currentBranch: 'fetchData'
   },
 
   filters: {
@@ -58,6 +58,7 @@ var demo = new Vue({
       xhr.open('GET', apiURL + self.currentBranch)
       xhr.onload = function () {
         self.commits = JSON.parse(xhr.responseText)
+        console.log(self.commits[0].html_url)
       }
       xhr.send()
     }

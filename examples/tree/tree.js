@@ -31,6 +31,10 @@ var data = {
 // define the item component
 Vue.component('item', {
   template: '#item-template',
+  replace: true,
+  props: {
+    model: Object
+  },
   data: function () {
     return {
       open: false
@@ -50,7 +54,7 @@ Vue.component('item', {
     },
     changeType: function () {
       if (!this.isFolder) {
-        this.model.$add('children', [])
+        Vue.set(this.model, 'children', [])
         this.addChild()
         this.open = true
       }

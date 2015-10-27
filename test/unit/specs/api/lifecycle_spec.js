@@ -1,10 +1,10 @@
 var Vue = require('../../../../src/vue')
 var _ = require('../../../../src/util')
-var compile = require('../../../../src/compiler/compile')
+var compiler = require('../../../../src/compiler')
 
 if (_.inBrowser) {
   describe('Lifecycle API', function () {
-    
+
     describe('$mount', function () {
 
       var el, frag
@@ -57,7 +57,7 @@ if (_.inBrowser) {
       it('warn invalid selector', function () {
         var vm = new Vue()
         vm.$mount('#none-exist')
-        expect(_.warn).toHaveBeenCalled()
+        expect(hasWarned(_, 'Cannot find element')).toBe(true)
       })
 
       it('replace', function () {
@@ -76,9 +76,9 @@ if (_.inBrowser) {
         expect(vm.$el.className).toBe('replace-test')
         document.body.removeChild(vm.$el)
       })
-      
+
       it('precompiled linker', function () {
-        var linker = compile(el, Vue.options)
+        var linker = compiler.compile(el, Vue.options)
         var vm = new Vue({
           _linker: linker,
           data: {
@@ -96,8 +96,7 @@ if (_.inBrowser) {
           data: { test: 'frag' }
         })
         vm.$mount(frag)
-        expect(vm.$el).toBe(vm._blockStart)
-        expect(vm._blockFragment).toBe(frag)
+        expect(vm._fragment).toBe(frag)
         expect(vm.$el.nextSibling.textContent).toBe('frag')
       })
 
@@ -106,14 +105,14 @@ if (_.inBrowser) {
         var vm = new Vue({
           replace: true,
           data: { test: 'hi!' },
-          template: '<div>{{test}}</div><div>{{test}}</div>'
+          template: '<div>{{test}}</div><div>{{test + "!"}}</div>'
         })
         vm.$mount(el)
-        expect(vm.$el.nextSibling).not.toBe(el)
+        expect(vm.$el).not.toBe(el)
         expect(vm.$el.nextSibling.textContent).toBe('hi!')
-        expect(vm.$el.nextSibling.nextSibling.textContent).toBe('hi!')
+        expect(vm.$el.nextSibling.nextSibling.textContent).toBe('hi!!')
         expect(document.body.contains(el)).toBe(false)
-        expect(document.body.lastChild).toBe(vm._blockEnd)
+        expect(document.body.lastChild).toBe(vm._fragmentEnd)
         vm.$remove()
       })
 
@@ -146,7 +145,7 @@ if (_.inBrowser) {
           el: el
         })
         vm.$mount(el)
-        expect(_.warn).toHaveBeenCalled()
+        expect(hasWarned(_, '$mount() should be called only once')).toBe(true)
       })
 
     })
@@ -162,16 +161,14 @@ if (_.inBrowser) {
         expect(data.__ob__.vms.length).toBe(0)
         expect(vm._isDestroyed).toBe(true)
         expect(vm._watchers).toBeNull()
-        expect(vm._userWatchers).toBeNull()
-        expect(vm._watcherList).toBeNull()
         expect(vm.$el).toBeNull()
         expect(vm.$parent).toBeNull()
         expect(vm.$root).toBeNull()
-        expect(vm._children).toBeNull()
+        expect(vm.$children).toBeNull()
         expect(vm._directives).toBeNull()
         expect(Object.keys(vm._events).length).toBe(0)
       })
-      
+
       it('remove element', function () {
         var el = document.createElement('div')
         var parent = document.createElement('div')
@@ -199,18 +196,18 @@ if (_.inBrowser) {
 
       it('parent', function () {
         var parent = new Vue()
-        var child = parent.$addChild()
-        var child2 = parent.$addChild()
-        expect(parent._children.length).toBe(2)
+        var child = new Vue({ parent: parent })
+        var child2 = new Vue({ parent: parent })
+        expect(parent.$children.length).toBe(2)
         child.$destroy()
-        expect(parent._children.length).toBe(1)
+        expect(parent.$children.length).toBe(1)
         child2.$destroy()
-        expect(parent._children.length).toBe(0)
+        expect(parent.$children.length).toBe(0)
       })
 
       it('children', function () {
         var parent = new Vue()
-        var child = parent.$addChild()
+        var child = new Vue({ parent: parent })
         parent.$destroy()
         expect(child._isDestroyed).toBe(true)
       })
@@ -237,8 +234,8 @@ if (_.inBrowser) {
           data: { a: 1 }
         })
         vm.$watch('a', function () {})
-        var dirWatcher = vm._watcherList[0]
-        var userWatcher = vm._watcherList[1]
+        var dirWatcher = vm._watchers[0]
+        var userWatcher = vm._watchers[1]
         vm.$destroy()
         expect(dirWatcher.active).toBe(false)
         expect(userWatcher.active).toBe(false)
@@ -256,13 +253,13 @@ if (_.inBrowser) {
 
       it('safely teardown partial compilation', function () {
         var vm = new Vue({
-          template: '<div v-component="dialog"><div v-partial="hello"></div></div>',
+          template: '<test><partial name="hello"></partial></test>',
           partials: {
             hello: 'Hello {{name}}'
           },
           components: {
-            dialog: {
-              template: '<content>'
+            test: {
+              template: '<slot></slot>'
             }
           }
         }).$mount()

@@ -14,7 +14,7 @@ if (_.inBrowser) {
       parent = div()
       child = div()
       target = div()
-      parent.appendChild(child) 
+      parent.appendChild(child)
     })
 
     it('inDoc', function () {
@@ -27,11 +27,11 @@ if (_.inBrowser) {
 
     it('attr', function () {
       target.setAttribute('v-test', 'ok')
-      var val = _.attr(target, 'test')
+      var val = _.attr(target, 'v-test')
       expect(val).toBe('ok')
       expect(target.hasAttribute('v-test')).toBe(false)
     })
-    
+
     it('before', function () {
       _.before(target, child)
       expect(target.parentNode).toBe(parent)
@@ -75,15 +75,6 @@ if (_.inBrowser) {
       _.replace(child, target)
       expect(parent.childNodes.length).toBe(1)
       expect(parent.firstChild).toBe(target)
-    })
-
-    it('copyAttributes', function () {
-      parent.setAttribute('test1', 1)
-      parent.setAttribute('test2', 2)
-      _.copyAttributes(parent, target)
-      expect(target.attributes.length).toBe(2)
-      expect(target.getAttribute('test1')).toBe('1')
-      expect(target.getAttribute('test2')).toBe('2')
     })
 
     it('on/off', function () {

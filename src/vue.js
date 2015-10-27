@@ -35,11 +35,13 @@ extend(Vue, require('./api/global'))
  */
 
 Vue.options = {
-  directives  : require('./directives'),
-  filters     : require('./filters'),
-  partials    : {},
-  transitions : {},
-  components  : {}
+  replace: true,
+  directives: require('./directives/public'),
+  elementDirectives: require('./directives/element'),
+  filters: require('./filters'),
+  transitions: {},
+  components: {},
+  partials: {}
 }
 
 /**
@@ -58,7 +60,9 @@ Object.defineProperty(p, '$data', {
     return this._data
   },
   set: function (newData) {
-    this._setData(newData)
+    if (newData !== this._data) {
+      this._setData(newData)
+    }
   }
 })
 
@@ -68,8 +72,9 @@ Object.defineProperty(p, '$data', {
 
 extend(p, require('./instance/init'))
 extend(p, require('./instance/events'))
-extend(p, require('./instance/scope'))
-extend(p, require('./instance/compile'))
+extend(p, require('./instance/state'))
+extend(p, require('./instance/lifecycle'))
+extend(p, require('./instance/misc'))
 
 /**
  * Mixin public API methods
@@ -78,7 +83,14 @@ extend(p, require('./instance/compile'))
 extend(p, require('./api/data'))
 extend(p, require('./api/dom'))
 extend(p, require('./api/events'))
-extend(p, require('./api/child'))
 extend(p, require('./api/lifecycle'))
 
+Vue.version = '1.0.0'
 module.exports = _.Vue = Vue
+
+/* istanbul ignore if */
+if (process.env.NODE_ENV !== 'production') {
+  if (_.inBrowser && window.__VUE_DEVTOOLS_GLOBAL_HOOK__) {
+    window.__VUE_DEVTOOLS_GLOBAL_HOOK__.emit('init', Vue)
+  }
+}

@@ -1,57 +1,20 @@
-/**
- * Can we use __proto__?
- *
- * @type {Boolean}
- */
-
+// can we use __proto__?
 exports.hasProto = '__proto__' in {}
 
-/**
- * Indicates we have a window
- *
- * @type {Boolean}
- */
-
-var toString = Object.prototype.toString
+// Browser environment sniffing
 var inBrowser = exports.inBrowser =
   typeof window !== 'undefined' &&
-  toString.call(window) !== '[object Object]'
-
-/**
- * Defer a task to the start of the next event loop
- *
- * @param {Function} cb
- * @param {Object} ctx
- */
-
-var defer = inBrowser
-  ? (window.requestAnimationFrame ||
-    window.webkitRequestAnimationFrame ||
-    setTimeout)
-  : setTimeout
-
-exports.nextTick = function (cb, ctx) {
-  if (ctx) {
-    defer(function () { cb.call(ctx) }, 0)
-  } else {
-    defer(cb, 0)
-  }
-}
-
-/**
- * Detect if we are in IE9...
- *
- * @type {Boolean}
- */
+  Object.prototype.toString.call(window) !== '[object Object]'
 
 exports.isIE9 =
   inBrowser &&
-  navigator.userAgent.indexOf('MSIE 9.0') > 0
+  navigator.userAgent.toLowerCase().indexOf('msie 9.0') > 0
 
-/**
- * Sniff transition/animation events
- */
+exports.isAndroid =
+  inBrowser &&
+  navigator.userAgent.toLowerCase().indexOf('android') > 0
 
+// Transition property/event sniffing
 if (inBrowser && !exports.isIE9) {
   var isWebkitTrans =
     window.ontransitionend === undefined &&
@@ -72,3 +35,51 @@ if (inBrowser && !exports.isIE9) {
     ? 'webkitAnimationEnd'
     : 'animationend'
 }
+
+/**
+ * Defer a task to execute it asynchronously. Ideally this
+ * should be executed as a microtask, so we leverage
+ * MutationObserver if it's available, and fallback to
+ * setTimeout(0).
+ *
+ * @param {Function} cb
+ * @param {Object} ctx
+ */
+
+exports.nextTick = (function () {
+  var callbacks = []
+  var pending = false
+  var timerFunc
+  function nextTickHandler () {
+    pending = false
+    var copies = callbacks.slice(0)
+    callbacks = []
+    for (var i = 0; i < copies.length; i++) {
+      copies[i]()
+    }
+  }
+  /* istanbul ignore if */
+  if (typeof MutationObserver !== 'undefined') {
+    var counter = 1
+    var observer = new MutationObserver(nextTickHandler)
+    var textNode = document.createTextNode(counter)
+    observer.observe(textNode, {
+      characterData: true
+    })
+    timerFunc = function () {
+      counter = (counter + 1) % 2
+      textNode.data = counter
+    }
+  } else {
+    timerFunc = setTimeout
+  }
+  return function (cb, ctx) {
+    var func = ctx
+      ? function () { cb.call(ctx) }
+      : cb
+    callbacks.push(func)
+    if (pending) return
+    pending = true
+    timerFunc(nextTickHandler, 0)
+  }
+})()

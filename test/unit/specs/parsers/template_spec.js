@@ -6,7 +6,7 @@ var testString = '<div>hello</div><p class="test">world</p>'
 if (_.inBrowser) {
 
   describe('Template Parser', function () {
-    
+
     it('should return same if argument is already a fragment', function () {
       var frag = document.createDocumentFragment()
       var res = parse(frag)
@@ -16,7 +16,7 @@ if (_.inBrowser) {
     it('should return content if argument is a valid template node', function () {
       var templateNode = document.createElement('template')
       if (!templateNode.content) {
-        // mock the content 
+        // mock the content
         templateNode.content = document.createDocumentFragment()
       }
       var res = parse(templateNode)
@@ -42,6 +42,11 @@ if (_.inBrowser) {
       expect(res instanceof DocumentFragment).toBeTruthy()
       expect(res.childNodes.length).toBe(1)
       expect(res.firstChild.nodeValue).toBe('hi<hi')
+      // #1330
+      res = parse('hello &#x2F; hello')
+      expect(res instanceof DocumentFragment).toBeTruthy()
+      expect(res.childNodes.length).toBe(1)
+      expect(res.firstChild.nodeValue).toBe('hello / hello')
     })
 
     it('should parse textContent if argument is a script node', function () {
@@ -134,7 +139,14 @@ if (_.inBrowser) {
       var a = document.createElement('div')
       a.innerHTML = '<template>1</template>'
       var c = templateParser.clone(a)
-      expect(a.firstChild.innerHTML).toBe('1')
+      expect(c.firstChild.innerHTML).toBe('1')
+    })
+
+    it('should deal with Safari template clone bug even when nested', function () {
+      var a = document.createElement('div')
+      a.innerHTML = '<template><div>1</div><template>2</template></template>'
+      var c = templateParser.clone(a)
+      expect(c.firstChild.innerHTML).toBe('<div>1</div><template>2</template>')
     })
 
     it('should deal with IE textarea clone bug', function () {
@@ -142,6 +154,19 @@ if (_.inBrowser) {
       t.placeholder = 't'
       var c = templateParser.clone(t)
       expect(c.value).toBe('')
+    })
+
+    it('should trim empty text nodes', function () {
+      // string
+      var res = templateParser.parse('    <p>test</p>    ')
+      expect(res.childNodes.length).toBe(1)
+      expect(res.firstChild.tagName).toBe('P')
+      // nodes
+      var el = document.createElement('div')
+      el.innerHTML = '<template>    <p>test</p>    </template>'
+      res = templateParser.parse(el.children[0])
+      expect(res.childNodes.length).toBe(1)
+      expect(res.firstChild.tagName).toBe('P')
     })
   })
 }

@@ -2,6 +2,17 @@ var _ = require('../../../../src/util')
 
 describe('Util - Language Enhancement', function () {
 
+  it('isLiteral', function () {
+    expect(_.isLiteral('123')).toBe(true)
+    expect(_.isLiteral('12.3')).toBe(true)
+    expect(_.isLiteral('true')).toBe(true)
+    expect(_.isLiteral(' false ')).toBe(true)
+    expect(_.isLiteral('"hi"')).toBe(true)
+    expect(_.isLiteral(" 'whatt' ")).toBe(true)
+    expect(_.isLiteral('a.b.c')).toBe(false)
+    expect(_.isLiteral('1 + 1')).toBe(false)
+  })
+
   it('toString', function () {
     expect(_.toString('hi')).toBe('hi')
     expect(_.toString(1.234)).toBe('1.234')
@@ -21,16 +32,25 @@ describe('Util - Language Enhancement', function () {
   it('strip quotes', function () {
     expect(_.stripQuotes('"123"')).toBe('123')
     expect(_.stripQuotes("'fff'")).toBe('fff')
-    expect(_.stripQuotes("'fff")).toBe(false)
+    expect(_.stripQuotes("'fff")).toBe("'fff")
   })
 
   it('camelize', function () {
     expect(_.camelize('abc')).toBe('abc')
     expect(_.camelize('some-long-name')).toBe('someLongName')
-    expect(_.camelize('what_about_this')).toBe('whatAboutThis')
-    expect(_.camelize('abc', true)).toBe('Abc')
-    expect(_.camelize('some-long-name', true)).toBe('SomeLongName')
-    expect(_.camelize('what_about_this', true)).toBe('WhatAboutThis')
+  })
+
+  it('hyphenate', function () {
+    expect(_.hyphenate('whatsUp')).toBe('whats-up')
+    expect(_.hyphenate('a1BfC')).toBe('a1-bf-c')
+    expect(_.hyphenate('already-With-Hyphen')).toBe('already-with-hyphen')
+  })
+
+  it('classify', function () {
+    expect(_.classify('abc')).toBe('Abc')
+    expect(_.classify('some-long-name')).toBe('SomeLongName')
+    expect(_.classify('what_about_this')).toBe('WhatAboutThis')
+    expect(_.classify('how/about/that')).toBe('HowAboutThat')
   })
 
   it('bind', function () {
@@ -42,10 +62,10 @@ describe('Util - Language Enhancement', function () {
     var res = bound('arg a')
     expect(res).toBe('ctx a arg a')
   })
-  
+
   it('toArray', function () {
     // should make a copy of original array
-    var arr = [1,2,3]
+    var arr = [1, 2, 3]
     var res = _.toArray(arr)
     expect(Array.isArray(res)).toBe(true)
     expect(res.toString()).toEqual('1,2,3')
@@ -56,11 +76,11 @@ describe('Util - Language Enhancement', function () {
       var res = _.toArray(arguments)
       expect(Array.isArray(res)).toBe(true)
       expect(res.toString()).toEqual('1,2,3')
-    })(1,2,3)
+    })(1, 2, 3)
   })
 
   it('extend', function () {
-    var from = {a:1,b:2}
+    var from = {a: 1, b: 2}
     var to = {}
     var res = _.extend(to, from)
     expect(to.a).toBe(from.a)
@@ -76,7 +96,7 @@ describe('Util - Language Enhancement', function () {
     expect(_.isObject(true)).toBeFalsy()
     expect(_.isObject('hi')).toBeFalsy()
     expect(_.isObject(undefined)).toBeFalsy()
-    expect(_.isObject(function(){})).toBeFalsy()
+    expect(_.isObject(function () {})).toBeFalsy()
   })
 
   it('isPlainObject', function () {
@@ -88,7 +108,7 @@ describe('Util - Language Enhancement', function () {
     expect(_.isPlainObject(true)).toBeFalsy()
     expect(_.isPlainObject('hi')).toBeFalsy()
     expect(_.isPlainObject(undefined)).toBeFalsy()
-    expect(_.isPlainObject(function(){})).toBe(false)
+    expect(_.isPlainObject(function () {})).toBe(false)
     if (_.inBrowser) {
       expect(_.isPlainObject(window)).toBe(false)
     }
@@ -113,4 +133,28 @@ describe('Util - Language Enhancement', function () {
     expect(desc.enumerable).toBe(true)
   })
 
+  it('debounce', function (done) {
+    var count = 0
+    var fn = _.debounce(function () {
+      count++
+    }, 100)
+    fn()
+    setTimeout(fn, 10)
+    setTimeout(fn, 20)
+    setTimeout(function () {
+      expect(count).toBe(0)
+    }, 30)
+    setTimeout(function () {
+      expect(count).toBe(1)
+      done()
+    }, 200)
+  })
+
+  it('looseEqual', function () {
+    expect(_.looseEqual(1, '1')).toBe(true)
+    expect(_.looseEqual(null, undefined)).toBe(true)
+    expect(_.looseEqual({a: 1}, {a: 1})).toBe(true)
+    expect(_.looseEqual({a: 1}, {a: 2})).toBe(false)
+    expect(_.looseEqual({}, [])).toBe(false)
+  })
 })

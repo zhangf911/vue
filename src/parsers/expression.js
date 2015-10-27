@@ -3,24 +3,30 @@ var Path = require('./path')
 var Cache = require('../cache')
 var expressionCache = new Cache(1000)
 
-var keywords =
-  'Math,break,case,catch,continue,debugger,default,' +
-  'delete,do,else,false,finally,for,function,if,in,' +
-  'instanceof,new,null,return,switch,this,throw,true,try,' +
-  'typeof,var,void,while,with,undefined,abstract,boolean,' +
-  'byte,char,class,const,double,enum,export,extends,' +
-  'final,float,goto,implements,import,int,interface,long,' +
-  'native,package,private,protected,public,short,static,' +
-  'super,synchronized,throws,transient,volatile,' +
-  'arguments,let,yield'
+var allowedKeywords =
+  'Math,Date,this,true,false,null,undefined,Infinity,NaN,' +
+  'isNaN,isFinite,decodeURI,decodeURIComponent,encodeURI,' +
+  'encodeURIComponent,parseInt,parseFloat'
+var allowedKeywordsRE =
+  new RegExp('^(' + allowedKeywords.replace(/,/g, '\\b|') + '\\b)')
+
+// keywords that don't make sense inside expressions
+var improperKeywords =
+  'break,case,class,catch,const,continue,debugger,default,' +
+  'delete,do,else,export,extends,finally,for,function,if,' +
+  'import,in,instanceof,let,return,super,switch,throw,try,' +
+  'var,while,with,yield,enum,await,implements,package,' +
+  'proctected,static,interface,private,public'
+var improperKeywordsRE =
+  new RegExp('^(' + improperKeywords.replace(/,/g, '\\b|') + '\\b)')
 
 var wsRE = /\s/g
 var newlineRE = /\n/g
-var saveRE = /[\{,]\s*[\w\$_]+\s*:|'[^']*'|"[^"]*"/g
+var saveRE = /[\{,]\s*[\w\$_]+\s*:|('[^']*'|"[^"]*")|new |typeof |void /g
 var restoreRE = /"(\d+)"/g
-var pathTestRE = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*|\['.*?'\]|\[".*?"\]|\[\d+\])*$/
+var pathTestRE = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*|\['.*?'\]|\[".*?"\]|\[\d+\]|\[[A-Za-z_$][\w$]*\])*$/
 var pathReplaceRE = /[^\w$\.]([A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*|\['.*?'\]|\[".*?"\])*)/g
-var keywordsRE = new RegExp('^(' + keywords.replace(/,/g, '\\b|') + '\\b)')
+var booleanLiteralRE = /^(true|false)$/
 
 /**
  * Save / Rewrite / Restore
@@ -37,13 +43,23 @@ var saved = []
 /**
  * Save replacer
  *
+ * The save regex can match two possible cases:
+ * 1. An opening object literal
+ * 2. A string
+ * If matched as a plain string, we need to escape its
+ * newlines, since the string needs to be preserved when
+ * generating the function body.
+ *
  * @param {String} str
+ * @param {String} isString - str if matched as a string
  * @return {String} - placeholder with index
  */
 
-function save (str) {
+function save (str, isString) {
   var i = saved.length
-  saved[i] = str.replace(newlineRE, '\\n')
+  saved[i] = isString
+    ? str.replace(newlineRE, '\\n')
+    : str
   return '"' + i + '"'
 }
 
@@ -57,7 +73,7 @@ function save (str) {
 function rewrite (raw) {
   var c = raw.charAt(0)
   var path = raw.slice(1)
-  if (keywordsRE.test(path)) {
+  if (allowedKeywordsRE.test(path)) {
     return raw
   } else {
     path = path.indexOf('"') > -1
@@ -89,6 +105,11 @@ function restore (str, i) {
  */
 
 function compileExpFns (exp, needSet) {
+  if (improperKeywordsRE.test(exp)) {
+    process.env.NODE_ENV !== 'production' && _.warn(
+      'Avoid using reserved keywords in expression: ' + exp
+    )
+  }
   // reset state
   saved.length = 0
   // save strings and object literal keys
@@ -124,6 +145,7 @@ function compilePathFns (exp) {
   if (exp.indexOf('[') < 0) {
     // really simple path
     path = exp.split('.')
+    path.raw = exp
     getter = Path.compileGetter(path)
   } else {
     // do the real parsing
@@ -153,7 +175,7 @@ function makeGetter (body) {
   try {
     return new Function('scope', 'return ' + body + ';')
   } catch (e) {
-    _.warn(
+    process.env.NODE_ENV !== 'production' && _.warn(
       'Invalid expression. ' +
       'Generated function body: ' + body
     )
@@ -178,7 +200,9 @@ function makeSetter (body) {
   try {
     return new Function('scope', 'value', body + '=value;')
   } catch (e) {
-    _.warn('Invalid setter function body: ' + body)
+    process.env.NODE_ENV !== 'production' && _.warn(
+      'Invalid setter function body: ' + body
+    )
   }
 }
 
@@ -215,12 +239,26 @@ exports.parse = function (exp, needSet) {
   // we do a simple path check to optimize for them.
   // the check fails valid paths with unusal whitespaces,
   // but that's too rare and we don't care.
-  var res = pathTestRE.test(exp)
+  // also skip boolean literals and paths that start with
+  // global "Math"
+  var res = exports.isSimplePath(exp)
     ? compilePathFns(exp)
     : compileExpFns(exp, needSet)
   expressionCache.put(exp, res)
   return res
 }
 
-// Export the pathRegex for external use
-exports.pathTestRE = pathTestRE
+/**
+ * Check if an expression is a simple path.
+ *
+ * @param {String} exp
+ * @return {Boolean}
+ */
+
+exports.isSimplePath = function (exp) {
+  return pathTestRE.test(exp) &&
+    // don't treat true/false as paths
+    !booleanLiteralRE.test(exp) &&
+    // Math constants e.g. Math.PI, Math.E etc.
+    exp.slice(0, 5) !== 'Math.'
+}

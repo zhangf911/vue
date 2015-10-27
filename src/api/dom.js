@@ -2,6 +2,18 @@ var _ = require('../util')
 var transition = require('../transition')
 
 /**
+ * Convenience on-instance nextTick. The callback is
+ * auto-bound to the instance, and this avoids component
+ * modules having to rely on the global Vue.
+ *
+ * @param {Function} fn
+ */
+
+exports.$nextTick = function (fn) {
+  _.nextTick(fn, this)
+}
+
+/**
  * Append instance to target
  *
  * @param {Node} target
@@ -75,26 +87,26 @@ exports.$after = function (target, cb, withTransition) {
  */
 
 exports.$remove = function (cb, withTransition) {
+  if (!this.$el.parentNode) {
+    return cb && cb()
+  }
   var inDoc = this._isAttached && _.inDoc(this.$el)
   // if we are not in document, no need to check
   // for transitions
   if (!inDoc) withTransition = false
-  var op
   var self = this
   var realCb = function () {
     if (inDoc) self._callHook('detached')
     if (cb) cb()
   }
-  if (
-    this._isBlock &&
-    !this._blockFragment.hasChildNodes()
-  ) {
-    op = withTransition === false
-      ? append
-      : transition.removeThenAppend
-    blockOp(this, this._blockFragment, op, realCb)
+  if (this._isFragment) {
+    _.removeNodeRange(
+      this._fragmentStart,
+      this._fragmentEnd,
+      this, this._fragment, realCb
+    )
   } else {
-    op = withTransition === false
+    var op = withTransition === false
       ? remove
       : transition.remove
     op(this.$el, this, realCb)
@@ -118,14 +130,17 @@ function insert (vm, target, cb, withTransition, op1, op2) {
   target = query(target)
   var targetIsDetached = !_.inDoc(target)
   var op = withTransition === false || targetIsDetached
-    ? op1
-    : op2
+      ? op1
+      : op2
   var shouldCallHook =
     !targetIsDetached &&
     !vm._isAttached &&
     !_.inDoc(vm.$el)
-  if (vm._isBlock) {
-    blockOp(vm, target, op, cb)
+  if (vm._isFragment) {
+    _.mapNodeRange(vm._fragmentStart, vm._fragmentEnd, function (node) {
+      op(node, target, vm)
+    })
+    cb && cb()
   } else {
     op(vm.$el, target, vm, cb)
   }
@@ -133,28 +148,6 @@ function insert (vm, target, cb, withTransition, op1, op2) {
     vm._callHook('attached')
   }
   return vm
-}
-
-/**
- * Execute a transition operation on a block instance,
- * iterating through all its block nodes.
- *
- * @param {Vue} vm
- * @param {Node} target
- * @param {Function} op
- * @param {Function} cb
- */
-
-function blockOp (vm, target, op, cb) {
-  var current = vm._blockStart
-  var end = vm._blockEnd
-  var next
-  while (next !== end) {
-    next = current.nextSibling
-    op(current, target, vm)
-    current = next
-  }
-  op(end, target, vm, cb)
 }
 
 /**

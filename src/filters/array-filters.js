@@ -1,68 +1,76 @@
 var _ = require('../util')
 var Path = require('../parsers/path')
+var toArray = require('../directives/public/for')._postProcess
 
 /**
- * Filter filter for v-repeat
+ * Filter filter for arrays
  *
  * @param {String} searchKey
  * @param {String} [delimiter]
  * @param {String} dataKey
  */
 
-exports.filterBy = function (arr, searchKey, delimiter, dataKey) {
-  // allow optional `in` delimiter
-  // because why not
-  if (delimiter && delimiter !== 'in') {
-    dataKey = delimiter
-  }
-  // get the search string
-  var search =
-    _.stripQuotes(searchKey) ||
-    this.$get(searchKey)
-  if (!search) {
+exports.filterBy = function (arr, search, delimiter /* ...dataKeys */) {
+  arr = toArray(arr)
+  if (search == null) {
     return arr
   }
+  if (typeof search === 'function') {
+    return arr.filter(search)
+  }
+  // cast to lowercase string
   search = ('' + search).toLowerCase()
-  // get the optional dataKey
-  dataKey =
-    dataKey &&
-    (_.stripQuotes(dataKey) || this.$get(dataKey))
-  return arr.filter(function (item) {
-    return dataKey
-      ? contains(Path.get(item, dataKey), search)
-      : contains(item, search)
-  })
+  // allow optional `in` delimiter
+  // because why not
+  var n = delimiter === 'in' ? 3 : 2
+  // extract and flatten keys
+  var keys = _.toArray(arguments, n).reduce(function (prev, cur) {
+    return prev.concat(cur)
+  }, [])
+  var res = []
+  var item, key, val, j
+  for (var i = 0, l = arr.length; i < l; i++) {
+    item = arr[i]
+    val = (item && item.$value) || item
+    j = keys.length
+    if (j) {
+      while (j--) {
+        key = keys[j]
+        if ((key === '$key' && contains(item.$key, search)) ||
+            contains(Path.get(val, key), search)) {
+          res.push(item)
+        }
+      }
+    } else {
+      if (contains(item, search)) {
+        res.push(item)
+      }
+    }
+  }
+  return res
 }
 
 /**
- * Filter filter for v-repeat
+ * Filter filter for arrays
  *
  * @param {String} sortKey
- * @param {String} reverseKey
+ * @param {String} reverse
  */
 
-exports.orderBy = function (arr, sortKey, reverseKey) {
-  var key =
-    _.stripQuotes(sortKey) ||
-    this.$get(sortKey)
-  if (!key) {
+exports.orderBy = function (arr, sortKey, reverse) {
+  arr = toArray(arr)
+  if (!sortKey) {
     return arr
   }
-  var order = 1
-  if (reverseKey) {
-    if (reverseKey === '-1') {
-      order = -1
-    } else if (reverseKey.charCodeAt(0) === 0x21) { // !
-      reverseKey = reverseKey.slice(1)
-      order = this.$get(reverseKey) ? 1 : -1
-    } else {
-      order = this.$get(reverseKey) ? -1 : 1
-    }
-  }
+  var order = (reverse && reverse < 0) ? -1 : 1
   // sort on a copy to avoid mutating original array
   return arr.slice().sort(function (a, b) {
-    a = Path.get(a, key)
-    b = Path.get(b, key)
+    if (sortKey !== '$key') {
+      if (_.isObject(a) && '$value' in a) a = a.$value
+      if (_.isObject(b) && '$value' in b) b = b.$value
+    }
+    a = _.isObject(a) ? Path.get(a, sortKey) : a
+    b = _.isObject(b) ? Path.get(b, sortKey) : b
     return a === b ? 0 : a > b ? order : -order
   })
 }
@@ -75,9 +83,19 @@ exports.orderBy = function (arr, sortKey, reverseKey) {
  */
 
 function contains (val, search) {
-  if (_.isObject(val)) {
-    for (var key in val) {
-      if (contains(val[key], search)) {
+  var i
+  if (_.isPlainObject(val)) {
+    var keys = Object.keys(val)
+    i = keys.length
+    while (i--) {
+      if (contains(val[keys[i]], search)) {
+        return true
+      }
+    }
+  } else if (_.isArray(val)) {
+    i = val.length
+    while (i--) {
+      if (contains(val[i], search)) {
         return true
       }
     }

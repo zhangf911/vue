@@ -57,17 +57,28 @@ describe('Global API', function () {
     delete Vue.options.directives['plugin-test']
   })
 
+  it('global mixin', function () {
+    var options = Vue.options
+    var spy = jasmine.createSpy('global mixin')
+    Vue.mixin({
+      created: function () {
+        spy(this.$options.myOption)
+      }
+    })
+    new Vue({
+      myOption: 'hello'
+    })
+    expect(spy).toHaveBeenCalledWith('hello')
+    Vue.options = options
+  })
+
   describe('Asset registration', function () {
 
     var Test = Vue.extend()
-    
-    it('directive / filter / partial / transition', function () {
-      [
-        'directive',
-        'filter',
-        'partial',
-        'transition'
-      ].forEach(function (type) {
+
+    it('directive / elementDirective / filter / transition', function () {
+      var assets = ['directive', 'elementDirective', 'filter', 'transition']
+      assets.forEach(function (type) {
         var def = {}
         Test[type]('test', def)
         expect(Test.options[type + 's'].test).toBe(def)

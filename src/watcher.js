@@ -1,6 +1,6 @@
 var _ = require('./util')
 var config = require('./config')
-var Observer = require('./observer')
+var Dep = require('./observer/dep')
 var expParser = require('./parsers/expression')
 var batcher = require('./batcher')
 var uid = 0
@@ -18,36 +18,45 @@ var uid = 0
  *                 - {Boolean} twoWay
  *                 - {Boolean} deep
  *                 - {Boolean} user
+ *                 - {Boolean} sync
+ *                 - {Boolean} lazy
+ *                 - {Function} [preProcess]
+ *                 - {Function} [postProcess]
  * @constructor
  */
 
-function Watcher (vm, expression, cb, options) {
+function Watcher (vm, expOrFn, cb, options) {
+  // mix in options
+  if (options) {
+    _.extend(this, options)
+  }
+  var isFn = typeof expOrFn === 'function'
   this.vm = vm
-  vm._watcherList.push(this)
-  this.expression = expression
-  this.cbs = [cb]
+  vm._watchers.push(this)
+  this.expression = isFn ? expOrFn.toString() : expOrFn
+  this.cb = cb
   this.id = ++uid // uid for batching
   this.active = true
-  options = options || {}
-  this.deep = options.deep
-  this.user = options.user
+  this.dirty = this.lazy // for lazy watchers
   this.deps = Object.create(null)
-  // setup filters if any.
-  // We delegate directive filters here to the watcher
-  // because they need to be included in the dependency
-  // collection process.
-  if (options.filters) {
-    this.readFilters = options.filters.read
-    this.writeFilters = options.filters.write
-  }
+  this.newDeps = null
+  this.prevError = null // for async error stacks
   // parse expression for getter/setter
-  var res = expParser.parse(expression, options.twoWay)
-  this.getter = res.get
-  this.setter = res.set
-  this.value = this.get()
+  if (isFn) {
+    this.getter = expOrFn
+    this.setter = undefined
+  } else {
+    var res = expParser.parse(expOrFn, this.twoWay)
+    this.getter = res.get
+    this.setter = res.set
+  }
+  this.value = this.lazy
+    ? undefined
+    : this.get()
+  // state for avoiding false triggers for deep and Array
+  // watchers during vm._digest()
+  this.queued = this.shallow = false
 }
-
-var p = Watcher.prototype
 
 /**
  * Add a dependency to this directive.
@@ -55,7 +64,7 @@ var p = Watcher.prototype
  * @param {Dep} dep
  */
 
-p.addDep = function (dep) {
+Watcher.prototype.addDep = function (dep) {
   var id = dep.id
   if (!this.newDeps[id]) {
     this.newDeps[id] = dep
@@ -70,24 +79,41 @@ p.addDep = function (dep) {
  * Evaluate the getter, and re-collect dependencies.
  */
 
-p.get = function () {
+Watcher.prototype.get = function () {
   this.beforeGet()
-  var vm = this.vm
+  var scope = this.scope || this.vm
   var value
   try {
-    value = this.getter.call(vm, vm)
+    value = this.getter.call(scope, scope)
   } catch (e) {
-    _.warn(
-      'Error when evaluating expression "' +
-      this.expression + '":\n   ' + e
-    )
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      config.warnExpressionErrors
+    ) {
+      _.warn(
+        'Error when evaluating expression "' +
+        this.expression + '". ' +
+        (config.debug
+          ? ''
+          : 'Turn on debug mode to see stack trace.'
+        ), e
+      )
+    }
   }
   // "touch" every property so they are all tracked as
   // dependencies for deep watching
   if (this.deep) {
     traverse(value)
   }
-  value = _.applyFilters(value, this.readFilters, vm)
+  if (this.preProcess) {
+    value = this.preProcess(value)
+  }
+  if (this.filters) {
+    value = scope._applyFilters(value, null, this.filters, false)
+  }
+  if (this.postProcess) {
+    value = this.postProcess(value)
+  }
   this.afterGet()
   return value
 }
@@ -98,18 +124,52 @@ p.get = function () {
  * @param {*} value
  */
 
-p.set = function (value) {
-  var vm = this.vm
-  value = _.applyFilters(
-    value, this.writeFilters, vm, this.value
-  )
+Watcher.prototype.set = function (value) {
+  var scope = this.scope || this.vm
+  if (this.filters) {
+    value = scope._applyFilters(
+      value, this.value, this.filters, true)
+  }
   try {
-    this.setter.call(vm, vm, value)
+    this.setter.call(scope, scope, value)
   } catch (e) {
-    _.warn(
-      'Error when evaluating setter "' +
-      this.expression + '":\n   ' + e
-    )
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      config.warnExpressionErrors
+    ) {
+      _.warn(
+        'Error when evaluating setter "' +
+        this.expression + '"', e
+      )
+    }
+  }
+  // two-way sync for v-for alias
+  var forContext = scope.$forContext
+  if (process.env.NODE_ENV !== 'production') {
+    if (
+      forContext &&
+      forContext.filters &&
+      (new RegExp(forContext.alias + '\\b')).test(this.expression)
+    ) {
+      _.warn(
+        'It seems you are using two-way binding on ' +
+        'a v-for alias (' + this.expression + '), and the ' +
+        'v-for has filters. This will not work properly. ' +
+        'Either remove the filters or use an array of ' +
+        'objects and bind to object properties instead.'
+      )
+    }
+  }
+  if (
+    forContext &&
+    forContext.alias === this.expression &&
+    !forContext.filters
+  ) {
+    if (scope.$key) { // original is an object
+      forContext.rawValue[scope.$key] = value
+    } else {
+      forContext.rawValue.$set(scope.$index, value)
+    }
   }
 }
 
@@ -117,18 +177,21 @@ p.set = function (value) {
  * Prepare for dependency collection.
  */
 
-p.beforeGet = function () {
-  Observer.target = this
-  this.newDeps = {}
+Watcher.prototype.beforeGet = function () {
+  Dep.target = this
+  this.newDeps = Object.create(null)
 }
 
 /**
  * Clean up for dependency collection.
  */
 
-p.afterGet = function () {
-  Observer.target = null
-  for (var id in this.deps) {
+Watcher.prototype.afterGet = function () {
+  Dep.target = null
+  var ids = Object.keys(this.deps)
+  var i = ids.length
+  while (i--) {
+    var id = ids[i]
     if (!this.newDeps[id]) {
       this.deps[id].removeSub(this)
     }
@@ -139,12 +202,29 @@ p.afterGet = function () {
 /**
  * Subscriber interface.
  * Will be called when a dependency changes.
+ *
+ * @param {Boolean} shallow
  */
 
-p.update = function () {
-  if (!config.async || config.debug) {
+Watcher.prototype.update = function (shallow) {
+  if (this.lazy) {
+    this.dirty = true
+  } else if (this.sync || !config.async) {
     this.run()
   } else {
+    // if queued, only overwrite shallow with non-shallow,
+    // but not the other way around.
+    this.shallow = this.queued
+      ? shallow
+        ? this.shallow
+        : false
+      : !!shallow
+    this.queued = true
+    // record before-push error stack in debug mode
+    /* istanbul ignore if */
+    if (process.env.NODE_ENV !== 'production' && config.debug) {
+      this.prevError = new Error('[vue] async stack trace')
+    }
     batcher.push(this)
   }
 }
@@ -154,55 +234,67 @@ p.update = function () {
  * Will be called by the batcher.
  */
 
-p.run = function () {
+Watcher.prototype.run = function () {
   if (this.active) {
     var value = this.get()
     if (
-      (typeof value === 'object' && value !== null) ||
-      value !== this.value
+      value !== this.value ||
+      // Deep watchers and Array watchers should fire even
+      // when the value is the same, because the value may
+      // have mutated; but only do so if this is a
+      // non-shallow update (caused by a vm digest).
+      ((_.isArray(value) || this.deep) && !this.shallow)
     ) {
+      // set new value
       var oldValue = this.value
       this.value = value
-      var cbs = this.cbs
-      for (var i = 0, l = cbs.length; i < l; i++) {
-        cbs[i](value, oldValue)
-        // if a callback also removed other callbacks,
-        // we need to adjust the loop accordingly.
-        var removed = l - cbs.length
-        if (removed) {
-          i -= removed
-          l -= removed
+      // in debug + async mode, when a watcher callbacks
+      // throws, we also throw the saved before-push error
+      // so the full cross-tick stack trace is available.
+      var prevError = this.prevError
+      /* istanbul ignore if */
+      if (process.env.NODE_ENV !== 'production' &&
+          config.debug && prevError) {
+        this.prevError = null
+        try {
+          this.cb.call(this.vm, value, oldValue)
+        } catch (e) {
+          _.nextTick(function () {
+            throw prevError
+          }, 0)
+          throw e
         }
+      } else {
+        this.cb.call(this.vm, value, oldValue)
       }
     }
+    this.queued = this.shallow = false
   }
 }
 
 /**
- * Add a callback.
- *
- * @param {Function} cb
+ * Evaluate the value of the watcher.
+ * This only gets called for lazy watchers.
  */
 
-p.addCb = function (cb) {
-  this.cbs.push(cb)
+Watcher.prototype.evaluate = function () {
+  // avoid overwriting another watcher that is being
+  // collected.
+  var current = Dep.target
+  this.value = this.get()
+  this.dirty = false
+  Dep.target = current
 }
 
 /**
- * Remove a callback.
- *
- * @param {Function} cb
+ * Depend on all deps collected by this watcher.
  */
 
-p.removeCb = function (cb) {
-  var cbs = this.cbs
-  if (cbs.length > 1) {
-    var i = cbs.indexOf(cb)
-    if (i > -1) {
-      cbs.splice(i, 1)
-    }
-  } else if (cb === cbs[0]) {
-    this.teardown()
+Watcher.prototype.depend = function () {
+  var depIds = Object.keys(this.deps)
+  var i = depIds.length
+  while (i--) {
+    this.deps[depIds[i]].depend()
   }
 }
 
@@ -210,23 +302,23 @@ p.removeCb = function (cb) {
  * Remove self from all dependencies' subcriber list.
  */
 
-p.teardown = function () {
+Watcher.prototype.teardown = function () {
   if (this.active) {
     // remove self from vm's watcher list
     // we can skip this if the vm if being destroyed
     // which can improve teardown performance.
     if (!this.vm._isBeingDestroyed) {
-      var list = this.vm._watcherList
-      list.splice(list.indexOf(this))
+      this.vm._watchers.$remove(this)
     }
-    for (var id in this.deps) {
-      this.deps[id].removeSub(this)
+    var depIds = Object.keys(this.deps)
+    var i = depIds.length
+    while (i--) {
+      this.deps[depIds[i]].removeSub(this)
     }
     this.active = false
-    this.vm = this.cbs = this.value = null
+    this.vm = this.cb = this.value = null
   }
 }
-
 
 /**
  * Recrusively traverse an object to evoke all converted

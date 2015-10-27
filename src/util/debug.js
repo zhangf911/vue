@@ -1,16 +1,12 @@
-var config = require('../config')
-
 /**
- * Enable debug utilities. The enableDebug() function and
- * all _.log() & _.warn() calls will be dropped in the
- * minified production build.
+ * Enable debug utilities.
  */
 
-enableDebug()
+if (process.env.NODE_ENV !== 'production') {
 
-function enableDebug () {
+  var config = require('../config')
   var hasConsole = typeof console !== 'undefined'
-  
+
   /**
    * Log a message.
    *
@@ -29,17 +25,12 @@ function enableDebug () {
    * @param {String} msg
    */
 
-  exports.warn = function (msg) {
-    if (hasConsole && !config.silent) {
+  exports.warn = function (msg, e) {
+    if (hasConsole && (!config.silent || config.debug)) {
       console.warn('[Vue warn]: ' + msg)
       /* istanbul ignore if */
       if (config.debug) {
-        /* jshint debug: true */
-        debugger
-      } else {
-        console.log(
-          'Set `Vue.config.debug = true` to enable debug mode.'
-        )
+        console.warn((e || new Error('Warning Stack Trace')).stack)
       }
     }
   }

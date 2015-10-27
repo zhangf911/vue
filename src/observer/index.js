@@ -1,18 +1,172 @@
 var _ = require('../util')
-var config = require('../config')
 var Dep = require('./dep')
 var arrayMethods = require('./array')
 var arrayKeys = Object.getOwnPropertyNames(arrayMethods)
-require('./object')
-
-var uid = 0
 
 /**
- * Type enums
+ * Observer class that are attached to each observed
+ * object. Once attached, the observer converts target
+ * object's property keys into getter/setters that
+ * collect dependencies and dispatches updates.
+ *
+ * @param {Array|Object} value
+ * @constructor
  */
 
-var ARRAY  = 0
-var OBJECT = 1
+function Observer (value) {
+  this.value = value
+  this.dep = new Dep()
+  _.define(value, '__ob__', this)
+  if (_.isArray(value)) {
+    var augment = _.hasProto
+      ? protoAugment
+      : copyAugment
+    augment(value, arrayMethods, arrayKeys)
+    this.observeArray(value)
+  } else {
+    this.walk(value)
+  }
+}
+
+// Static methods
+
+/**
+ * Attempt to create an observer instance for a value,
+ * returns the new observer if successfully observed,
+ * or the existing observer if the value already has one.
+ *
+ * @param {*} value
+ * @param {Vue} [vm]
+ * @return {Observer|undefined}
+ * @static
+ */
+
+Observer.create = function (value, vm) {
+  if (!value || typeof value !== 'object') {
+    return
+  }
+  var ob
+  if (
+    value.hasOwnProperty('__ob__') &&
+    value.__ob__ instanceof Observer
+  ) {
+    ob = value.__ob__
+  } else if (
+    (_.isArray(value) || _.isPlainObject(value)) &&
+    !Object.isFrozen(value) &&
+    !value._isVue
+  ) {
+    ob = new Observer(value)
+  }
+  if (ob && vm) {
+    ob.addVm(vm)
+  }
+  return ob
+}
+
+// Instance methods
+
+/**
+ * Walk through each property and convert them into
+ * getter/setters. This method should only be called when
+ * value type is Object.
+ *
+ * @param {Object} obj
+ */
+
+Observer.prototype.walk = function (obj) {
+  var keys = Object.keys(obj)
+  var i = keys.length
+  while (i--) {
+    this.convert(keys[i], obj[keys[i]])
+  }
+}
+
+/**
+ * Observe a list of Array items.
+ *
+ * @param {Array} items
+ */
+
+Observer.prototype.observeArray = function (items) {
+  var i = items.length
+  while (i--) {
+    var ob = Observer.create(items[i])
+    if (ob) {
+      (ob.parents || (ob.parents = [])).push(this)
+    }
+  }
+}
+
+/**
+ * Remove self from the parent list of removed objects.
+ *
+ * @param {Array} items
+ */
+
+Observer.prototype.unobserveArray = function (items) {
+  var i = items.length
+  while (i--) {
+    var ob = items[i] && items[i].__ob__
+    if (ob) {
+      ob.parents.$remove(this)
+    }
+  }
+}
+
+/**
+ * Notify self dependency, and also parent Array dependency
+ * if any.
+ */
+
+Observer.prototype.notify = function () {
+  this.dep.notify()
+  var parents = this.parents
+  if (parents) {
+    var i = parents.length
+    while (i--) {
+      parents[i].notify()
+    }
+  }
+}
+
+/**
+ * Convert a property into getter/setter so we can emit
+ * the events when the property is accessed/changed.
+ *
+ * @param {String} key
+ * @param {*} val
+ */
+
+Observer.prototype.convert = function (key, val) {
+  defineReactive(this.value, key, val)
+}
+
+/**
+ * Add an owner vm, so that when $set/$delete mutations
+ * happen we can notify owner vms to proxy the keys and
+ * digest the watchers. This is only called when the object
+ * is observed as an instance's root $data.
+ *
+ * @param {Vue} vm
+ */
+
+Observer.prototype.addVm = function (vm) {
+  (this.vms || (this.vms = [])).push(vm)
+}
+
+/**
+ * Remove an owner vm. This is called when the object is
+ * swapped out as an instance's $data object.
+ *
+ * @param {Vue} vm
+ */
+
+Observer.prototype.removeVm = function (vm) {
+  this.vms.$remove(vm)
+}
+
+// helpers
 
 /**
  * Augment an target Object or Array by intercepting
@@ -44,192 +198,38 @@ function copyAugment (target, src, keys) {
 }
 
 /**
- * Observer class that are attached to each observed
- * object. Once attached, the observer converts target
- * object's property keys into getter/setters that
- * collect dependencies and dispatches updates.
- *
- * @param {Array|Object} value
- * @param {Number} type
- * @constructor
- */
-
-function Observer (value, type) {
-  this.id = ++uid
-  this.value = value
-  this.active = true
-  this.deps = []
-  _.define(value, '__ob__', this)
-  if (type === ARRAY) {
-    var augment = config.proto && _.hasProto
-      ? protoAugment
-      : copyAugment
-    augment(value, arrayMethods, arrayKeys)
-    this.observeArray(value)
-  } else if (type === OBJECT) {
-    this.walk(value)
-  }
-}
-
-Observer.target = null
-
-var p = Observer.prototype
-
-/**
- * Attempt to create an observer instance for a value,
- * returns the new observer if successfully observed,
- * or the existing observer if the value already has one.
- *
- * @param {*} value
- * @return {Observer|undefined}
- * @static
- */
-
-Observer.create = function (value) {
-  if (
-    value &&
-    value.hasOwnProperty('__ob__') &&
-    value.__ob__ instanceof Observer
-  ) {
-    return value.__ob__
-  } else if (_.isArray(value)) {
-    return new Observer(value, ARRAY)
-  } else if (
-    _.isPlainObject(value) &&
-    !value._isVue // avoid Vue instance
-  ) {
-    return new Observer(value, OBJECT)
-  }
-}
-
-/**
- * Walk through each property and convert them into
- * getter/setters. This method should only be called when
- * value type is Object. Properties prefixed with `$` or `_`
- * and accessor properties are ignored.
+ * Define a reactive property on an Object.
  *
  * @param {Object} obj
- */
-
-p.walk = function (obj) {
-  var keys = Object.keys(obj)
-  var i = keys.length
-  var key, prefix
-  while (i--) {
-    key = keys[i]
-    prefix = key.charCodeAt(0)
-    if (prefix !== 0x24 && prefix !== 0x5F) { // skip $ or _
-      this.convert(key, obj[key])
-    }
-  }
-}
-
-/**
- * Try to carete an observer for a child value,
- * and if value is array, link dep to the array.
- *
- * @param {*} val
- * @return {Dep|undefined}
- */
-
-p.observe = function (val) {
-  return Observer.create(val)
-}
-
-/**
- * Observe a list of Array items.
- *
- * @param {Array} items
- */
-
-p.observeArray = function (items) {
-  var i = items.length
-  while (i--) {
-    this.observe(items[i])
-  }
-}
-
-/**
- * Convert a property into getter/setter so we can emit
- * the events when the property is accessed/changed.
- *
  * @param {String} key
  * @param {*} val
  */
 
-p.convert = function (key, val) {
-  var ob = this
-  var childOb = ob.observe(val)
+function defineReactive (obj, key, val) {
   var dep = new Dep()
-  if (childOb) {
-    childOb.deps.push(dep)
-  }
-  Object.defineProperty(ob.value, key, {
+  var childOb = Observer.create(val)
+  Object.defineProperty(obj, key, {
     enumerable: true,
     configurable: true,
-    get: function () {
-      // Observer.target is a watcher whose getter is
-      // currently being evaluated.
-      if (ob.active && Observer.target) {
-        Observer.target.addDep(dep)
+    get: function metaGetter () {
+      if (Dep.target) {
+        dep.depend()
+        if (childOb) {
+          childOb.dep.depend()
+        }
       }
       return val
     },
-    set: function (newVal) {
+    set: function metaSetter (newVal) {
       if (newVal === val) return
-      // remove dep from old value
-      var oldChildOb = val && val.__ob__
-      if (oldChildOb) {
-        var oldDeps = oldChildOb.deps
-        oldDeps.splice(oldDeps.indexOf(dep), 1)
-      }
       val = newVal
-      // add dep to new value
-      var newChildOb = ob.observe(newVal)
-      if (newChildOb) {
-        newChildOb.deps.push(dep)
-      }
+      childOb = Observer.create(newVal)
       dep.notify()
     }
   })
 }
 
-/**
- * Notify change on all self deps on an observer.
- * This is called when a mutable value mutates. e.g.
- * when an Array's mutating methods are called, or an
- * Object's $add/$delete are called.
- */
-
-p.notify = function () {
-  var deps = this.deps
-  for (var i = 0, l = deps.length; i < l; i++) {
-    deps[i].notify()
-  }
-}
-
-/**
- * Add an owner vm, so that when $add/$delete mutations
- * happen we can notify owner vms to proxy the keys and
- * digest the watchers. This is only called when the object
- * is observed as an instance's root $data.
- *
- * @param {Vue} vm
- */
-
-p.addVm = function (vm) {
-  (this.vms = this.vms || []).push(vm)
-}
-
-/**
- * Remove an owner vm. This is called when the object is
- * swapped out as an instance's $data object.
- *
- * @param {Vue} vm
- */
-
-p.removeVm = function (vm) {
-  this.vms.splice(this.vms.indexOf(vm), 1)
-}
+// Attach to the util object so it can be used elsewhere.
+_.defineReactive = defineReactive
 
 module.exports = Observer

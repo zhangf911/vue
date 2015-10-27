@@ -58,19 +58,21 @@ exports.lowercase = function (value) {
  */
 
 var digitsRE = /(\d{3})(?=\d)/g
-
-exports.currency = function (value, sign) {
+exports.currency = function (value, currency) {
   value = parseFloat(value)
-  if (!value && value !== 0) return ''
-  sign = sign || '$'
-  var s = Math.floor(Math.abs(value)).toString(),
-    i = s.length % 3,
-    h = i > 0
-      ? (s.slice(0, i) + (s.length > 3 ? ',' : ''))
-      : '',
-    f = '.' + value.toFixed(2).slice(-2)
-  return (value < 0 ? '-' : '') +
-    sign + h + s.slice(i).replace(digitsRE, '$1,') + f
+  if (!isFinite(value) || (!value && value !== 0)) return ''
+  currency = currency != null ? currency : '$'
+  var stringified = Math.abs(value).toFixed(2)
+  var _int = stringified.slice(0, -3)
+  var i = _int.length % 3
+  var head = i > 0
+    ? (_int.slice(0, i) + (_int.length > 3 ? ',' : ''))
+    : ''
+  var _float = stringified.slice(-3)
+  var sign = value < 0 ? '-' : ''
+  return currency + sign + head +
+    _int.slice(i).replace(digitsRE, '$1,') +
+    _float
 }
 
 /**
@@ -94,39 +96,20 @@ exports.pluralize = function (value) {
 }
 
 /**
- * A special filter that takes a handler function,
- * wraps it so it only gets triggered on specific
- * keypresses. v-on only.
+ * Debounce a handler function.
  *
- * @param {String} key
+ * @param {Function} handler
+ * @param {Number} delay = 300
+ * @return {Function}
  */
 
-var keyCodes = {
-  enter    : 13,
-  tab      : 9,
-  'delete' : 46,
-  up       : 38,
-  left     : 37,
-  right    : 39,
-  down     : 40,
-  esc      : 27
-}
-
-exports.key = function (handler, key) {
+exports.debounce = function (handler, delay) {
   if (!handler) return
-  var code = keyCodes[key]
-  if (!code) {
-    code = parseInt(key, 10)
+  if (!delay) {
+    delay = 300
   }
-  return function (e) {
-    if (e.keyCode === code) {
-      return handler.call(this, e)
-    }
-  }
+  return _.debounce(handler, delay)
 }
-
-// expose keycode hash
-exports.key.keyCodes = keyCodes
 
 /**
  * Install special array filters

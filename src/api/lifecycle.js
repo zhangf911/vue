@@ -1,5 +1,5 @@
 var _ = require('../util')
-var compile = require('../compiler/compile')
+var compiler = require('../compiler')
 
 /**
  * Set instance target element and kick off the compilation
@@ -13,28 +13,21 @@ var compile = require('../compiler/compile')
 
 exports.$mount = function (el) {
   if (this._isCompiled) {
-    _.warn('$mount() should be called only once.')
+    process.env.NODE_ENV !== 'production' && _.warn(
+      '$mount() should be called only once.'
+    )
     return
   }
+  el = _.query(el)
   if (!el) {
     el = document.createElement('div')
-  } else if (typeof el === 'string') {
-    var selector = el
-    el = document.querySelector(el)
-    if (!el) {
-      _.warn('Cannot find element: ' + selector)
-      return
-    }
   }
   this._compile(el)
-  this._isCompiled = true
-  this._callHook('compiled')
+  this._initDOMHooks()
   if (_.inDoc(this.$el)) {
     this._callHook('attached')
-    this._initDOMHooks()
     ready.call(this)
   } else {
-    this._initDOMHooks()
     this.$once('hook:attached', ready)
   }
   return this
@@ -64,9 +57,12 @@ exports.$destroy = function (remove, deferCleanup) {
  * decompile function.
  *
  * @param {Element|DocumentFragment} el
+ * @param {Vue} [host]
  * @return {Function}
  */
 
-exports.$compile = function (el) {
-  return compile(el, this.$options, true)(this, el)
+exports.$compile = function (el, host, scope, frag) {
+  return compiler.compile(el, this.$options, true)(
+    this, el, host, scope, frag
+  )
 }

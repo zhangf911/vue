@@ -7,21 +7,21 @@ describe('Events API', function () {
     vm = new Vue()
     spy = jasmine.createSpy('emitter')
   })
-  
+
   it('$on', function () {
     vm.$on('test', function () {
       // expect correct context
       expect(this).toBe(vm)
       spy.apply(this, arguments)
     })
-    vm.$emit('test', 1, 2 ,3, 4)
+    vm.$emit('test', 1, 2, 3, 4)
     expect(spy.calls.count()).toBe(1)
     expect(spy).toHaveBeenCalledWith(1, 2, 3, 4)
   })
 
   it('$once', function () {
     vm.$once('test', spy)
-    vm.$emit('test', 1, 2 ,3)
+    vm.$emit('test', 1, 2, 3)
     vm.$emit('test', 2, 3, 4)
     expect(spy.calls.count()).toBe(1)
     expect(spy).toHaveBeenCalledWith(1, 2, 3)
@@ -59,10 +59,24 @@ describe('Events API', function () {
   })
 
   it('$broadcast', function () {
-    var child1 = vm.$addChild()
-    var child2 = vm.$addChild()
-    var child3 = child1.$addChild()
+    var child1 = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: vm })
+    var child3 = new Vue({ parent: child1 })
     child1.$on('test', spy)
+    child2.$on('test', spy)
+    child3.$on('test', spy)
+    vm.$broadcast('test')
+    expect(spy.calls.count()).toBe(2) // should not propagate by default
+  })
+
+  it('$broadcast with propagation', function () {
+    var child1 = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: vm })
+    var child3 = new Vue({ parent: child1 })
+    child1.$on('test', function () {
+      spy()
+      return true
+    })
     child2.$on('test', spy)
     child3.$on('test', spy)
     vm.$broadcast('test')
@@ -70,12 +84,18 @@ describe('Events API', function () {
   })
 
   it('$broadcast optimization', function () {
-    var child = vm.$addChild()
-    var child2 = child.$addChild()
+    var child = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: child })
     // hooks should not incurr the bookkeeping cost
     child.$on('hook:created', function () {})
     expect(vm._eventsCount['hook:created']).toBeUndefined()
-    child.$on('test', spy)
+
+    function handler () {
+      spy()
+      return true
+    }
+
+    child.$on('test', handler)
     expect(vm._eventsCount['test']).toBe(1)
     // child2's $emit & $broadcast
     // shouldn't get called if no child listens to the event
@@ -84,7 +104,7 @@ describe('Events API', function () {
     vm.$broadcast('test')
     expect(spy.calls.count()).toBe(1)
     // check $off bookkeeping
-    child.$off('test', spy)
+    child.$off('test', handler)
     expect(vm._eventsCount['test']).toBe(0)
     function noop () {}
     child.$on('test', noop)
@@ -101,8 +121,8 @@ describe('Events API', function () {
   })
 
   it('$broadcast cancel', function () {
-    var child = vm.$addChild()
-    var child2 = child.$addChild()
+    var child = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: child })
     child.$on('test', function () {
       return false
     })
@@ -112,17 +132,31 @@ describe('Events API', function () {
   })
 
   it('$dispatch', function () {
-    var child = vm.$addChild()
-    var child2 = child.$addChild()
+    var child = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: child })
+    child2.$on('test', spy)
     child.$on('test', spy)
     vm.$on('test', spy)
     child2.$dispatch('test')
+    expect(spy.calls.count()).toBe(2) // should trigger on self, but not propagate to root
+  })
+
+  it('$dispatch with propagation', function () {
+    var child = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: child })
+    var child3 = new Vue({ parent: child2 })
+    child.$on('test', function () {
+      spy()
+      return true
+    })
+    vm.$on('test', spy)
+    child3.$dispatch('test')
     expect(spy.calls.count()).toBe(2)
   })
 
   it('$dispatch cancel', function () {
-    var child = vm.$addChild()
-    var child2 = child.$addChild()
+    var child = new Vue({ parent: vm })
+    var child2 = new Vue({ parent: child })
     child.$on('test', function () {
       return false
     })

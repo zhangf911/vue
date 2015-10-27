@@ -1,3 +1,4 @@
+var _ = require('../util')
 var uid = 0
 
 /**
@@ -8,11 +9,14 @@ var uid = 0
  */
 
 function Dep () {
-  this.id = ++uid
+  this.id = uid++
   this.subs = []
 }
 
-var p = Dep.prototype
+// the current target watcher being evaluated.
+// this is globally unique because there could be only one
+// watcher being evaluated at any time.
+Dep.target = null
 
 /**
  * Add a directive subscriber.
@@ -20,7 +24,7 @@ var p = Dep.prototype
  * @param {Directive} sub
  */
 
-p.addSub = function (sub) {
+Dep.prototype.addSub = function (sub) {
   this.subs.push(sub)
 }
 
@@ -30,20 +34,27 @@ p.addSub = function (sub) {
  * @param {Directive} sub
  */
 
-p.removeSub = function (sub) {
-  if (this.subs.length) {
-    var i = this.subs.indexOf(sub)
-    if (i > -1) this.subs.splice(i, 1)
-  }
+Dep.prototype.removeSub = function (sub) {
+  this.subs.$remove(sub)
+}
+
+/**
+ * Add self as a dependency to the target watcher.
+ */
+
+Dep.prototype.depend = function () {
+  Dep.target.addDep(this)
 }
 
 /**
  * Notify all subscribers of a new value.
  */
 
-p.notify = function () {
-  for (var i = 0, l = this.subs.length; i < l; i++) {
-    this.subs[i].update()
+Dep.prototype.notify = function () {
+  // stablize the subscriber list first
+  var subs = _.toArray(this.subs)
+  for (var i = 0, l = subs.length; i < l; i++) {
+    subs[i].update()
   }
 }
 

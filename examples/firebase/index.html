@@ -4,20 +4,20 @@
     <title>Vue.js Firebase example</title>
     <meta charset="utf-8">
     <link rel="stylesheet" type="text/css" href="style.css">
-    <script src='https://cdn.firebase.com/js/client/1.1.2/firebase.js'></script>
+    <script src='https://cdn.firebase.com/js/client/2.2.9/firebase.js'></script>
     <script src="../../dist/vue.js"></script>
   </head>
   <body>
     <div id="app">
       <ul>
-        <li class="user" v-repeat="users" v-transition>
-          <span>{{name}} - {{email}}</span>
-          <button v-on="click:removeUser(this)">X</button>
+        <li class="user" v-for="user in users" transition>
+          <span>{{user.name}} - {{user.email}}</span>
+          <button v-on:click="removeUser(user)">X</button>
         </li>
       </ul>
-      <form id="form" v-on="submit:addUser">
-        <input v-model="newUser.name | nameValidator | capitalize">
-        <input v-model="newUser.email | emailValidator">
+      <form id="form" v-on:submit.prevent="addUser">
+        <input v-model="newUser.name">
+        <input v-model="newUser.email">
         <input type="submit" value="Add User">
       </form>
       <ul class="errors">

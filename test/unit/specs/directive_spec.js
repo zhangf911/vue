@@ -14,8 +14,8 @@ describe('Directive', function () {
       unbind: jasmine.createSpy('unbind')
     }
     vm = new Vue({
-      data:{
-        a:1,
+      data: {
+        a: 1,
         b: { c: { d: 2 }}
       },
       filters: {
@@ -30,22 +30,26 @@ describe('Directive', function () {
   })
 
   it('normal', function (done) {
-    var d = new Directive('test', el, vm, {
+    var d = new Directive({
+      name: 'test',
+      def: def,
       expression: 'a',
-      arg: 'someArg',
-      filters: [{name:'test'}]
-    }, def)
+      modifiers: {
+        literal: false
+      },
+      filters: [{ name: 'test' }]
+    }, vm, el)
+    d._bind()
     // properties
     expect(d.el).toBe(el)
     expect(d.name).toBe('test')
     expect(d.vm).toBe(vm)
-    expect(d.arg).toBe('someArg')
     expect(d.expression).toBe('a')
+    expect(d.literal).toBe(false)
     // init calls
     expect(def.bind).toHaveBeenCalled()
     expect(def.update).toHaveBeenCalledWith(2)
     expect(d._bound).toBe(true)
-    // update
     vm.a = 2
     nextTick(function () {
       expect(def.update).toHaveBeenCalledWith(4, 2)
@@ -58,44 +62,21 @@ describe('Directive', function () {
     })
   })
 
-  it('static literal', function () {
-    def.isLiteral = true
-    var d = new Directive('test', el, vm, {
-      expression: 'a'
-    }, def)
+  it('literal', function () {
+    var d = new Directive({
+      name: 'test',
+      expression: 'a',
+      raw: 'a',
+      def: def,
+      modifiers: {
+        literal: true
+      }
+    }, vm, el)
+    d._bind()
     expect(d._watcher).toBeUndefined()
     expect(d.expression).toBe('a')
     expect(d.bind).toHaveBeenCalled()
-    expect(d.update).not.toHaveBeenCalled()
-  })
-
-  it('static literal, interpolate with no update', function () {
-    def.isLiteral = true
-    delete def.update
-    var d = new Directive('test', el, vm, {
-      expression: '{{a}}'
-    }, def)
-    expect(d._watcher).toBeUndefined()
-    expect(d.expression).toBe(1)
-    expect(d.bind).toHaveBeenCalled()
-  })
-
-  it('dynamic literal', function (done) {
-    vm.a = '' // #468 dynamic literals with falsy initial
-              // should still create the watcher.
-    def.isLiteral = true
-    var d = new Directive('test', el, vm, {
-      expression: '{{a}}'
-    }, def)
-    expect(d._watcher).toBeDefined()
-    expect(d.expression).toBe('')
-    expect(def.bind).toHaveBeenCalled()
-    expect(def.update).toHaveBeenCalledWith('')
-    vm.a = 'aa'
-    nextTick(function () {
-      expect(def.update).toHaveBeenCalledWith('aa', '')
-      done()
-    })
+    expect(d.update).toHaveBeenCalledWith('a')
   })
 
   it('inline statement', function () {
@@ -109,10 +90,13 @@ describe('Directive', function () {
         fn()
       }
     }
-    var d = new Directive('test', el, vm, {
+    var d = new Directive({
+      name: 'test',
       expression: 'a++',
-      filters: [{name:'test'}]
-    }, def)
+      filters: [{name: 'test'}],
+      def: def
+    }, vm, el)
+    d._bind()
     expect(d._watcher).toBeUndefined()
     expect(d.bind).toHaveBeenCalled()
     var wrappedFn = d.update.calls.argsFor(0)[0]
@@ -129,31 +113,30 @@ describe('Directive', function () {
         return v * 3
       }
     }
-    var d = new Directive('test', el, vm, {
+    var d = new Directive({
+      name: 'test',
       expression: 'a',
-      filters: [{name:'test'}]
-    }, def)
+      filters: [{name: 'test'}],
+      def: def
+    }, vm, el)
+    d._bind()
     d.set(2)
     expect(vm.a).toBe(6)
     nextTick(function () {
-      expect(def.update.calls.count()).toBe(2)
-      expect(def.update).toHaveBeenCalledWith(6, 1)
-      // locked set
-      d.set(3, true)
-      expect(vm.a).toBe(9)
-      nextTick(function () {
-        // should have no update calls
-        expect(def.update.calls.count()).toBe(2)
-        done()
-      })
+      // should have no update calls
+      expect(def.update.calls.count()).toBe(1)
+      done()
     })
   })
 
   it('deep', function (done) {
     def.deep = true
-    var d = new Directive('test', el, vm, {
-      expression: 'b'
-    }, def)
+    var d = new Directive({
+      name: 'test',
+      expression: 'b',
+      def: def
+    }, vm, el)
+    d._bind()
     vm.b.c.d = 3
     nextTick(function () {
       expect(def.update.calls.count()).toBe(2)
@@ -162,32 +145,13 @@ describe('Directive', function () {
   })
 
   it('function def', function () {
-    var d = new Directive('test', el, vm, {
-      expression: 'a'
-    }, def.update)
+    var d = new Directive({
+      name: 'test',
+      expression: 'a',
+      def: def.update
+    }, vm, el)
+    d._bind()
     expect(d.update).toBe(def.update)
     expect(def.update).toHaveBeenCalled()
   })
-
-  it('reuse the same watcher', function (done) {
-    var d = new Directive('test', el, vm, {
-      expression: 'a',
-    }, def)
-    var d2 = new Directive('test', el, vm, {
-      expression: 'a',
-    }, def)
-    expect(vm._watcherList.length).toBe(1)
-    expect(d._watcher).toBe(d2._watcher)
-    d2._teardown()
-    expect(d2._watcher).toBeNull()
-    expect(vm._watcherList.length).toBe(1)
-    vm.a = 2
-    nextTick(function () {
-      expect(def.update).toHaveBeenCalledWith(2, 1)
-      d._teardown()
-      expect(vm._watcherList.length).toBe(0)
-      done()
-    })
-  })
-
 })

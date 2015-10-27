@@ -1,6 +1,6 @@
 var textParser = require('../../../../src/parsers/text')
+var dirParser = require('../../../../src/parsers/directive')
 var config = require('../../../../src/config')
-var Vue = require('../../../../src/vue')
 
 var testCases = [
   {
@@ -23,7 +23,7 @@ var testCases = [
     expected: [
       { tag: true, value: 'text', html: false, oneTime: false },
       { value: ' and ' },
-      { tag: true, value: 'html', html: true, oneTime: false },
+      { tag: true, value: 'html', html: true, oneTime: false }
     ]
   },
   {
@@ -32,16 +32,7 @@ var testCases = [
     expected: [
       { tag: true, value: 'text', html: false, oneTime: true },
       { value: ' and ' },
-      { tag: true, value: 'html', html: true, oneTime: true },
-    ]
-  },
-  {
-    // partial
-    text: '{{> hello }} and {{>hello}}',
-    expected: [
-      { tag: true, value: 'hello', html: false, oneTime: false, partial: true },
-      { value: ' and ' },
-      { tag: true, value: 'hello', html: false, oneTime: false, partial: true }
+      { tag: true, value: 'html', html: true, oneTime: true }
     ]
   },
   {
@@ -50,6 +41,13 @@ var testCases = [
       { value: '[' },
       { tag: true, value: 'abc', html: false, oneTime: false },
       { value: ']' }
+    ]
+  },
+  // multiline
+  {
+    text: '{{\n  value  \n}}',
+    expected: [
+      { tag: true, value: 'value', html: false, oneTime: false }
     ]
   }
 ]
@@ -84,15 +82,17 @@ describe('Text Parser', function () {
 
   it('custom delimiters', function () {
     config.delimiters = ['[%', '%]']
+    config.unsafeDelimiters = ['{!!', '!!}']
     assertParse({
-      text: '[%* text %] and [[% html %]]',
+      text: '[%* text %] and {!! html !!}',
       expected: [
         { tag: true, value: 'text', html: false, oneTime: true },
         { value: ' and ' },
-        { tag: true, value: 'html', html: true, oneTime: false },
+        { tag: true, value: 'html', html: true, oneTime: false }
       ]
     })
     config.delimiters = ['{{', '}}']
+    config.unsafeDelimiters = ['{{{', '}}}']
   })
 
   it('tokens to expression', function () {
@@ -101,25 +101,22 @@ describe('Text Parser', function () {
     expect(exp).toBe('"view-"+(test + 1)+"-test-"+(ok + "|")')
   })
 
-  it('tokens to expression with oneTime tags & vm', function () {
-    var vm = new Vue({
-      data: { test: 'a', ok: 'b' }
-    })
-    var tokens = textParser.parse('view-{{*test}}-test-{{ok}}')
-    var exp = textParser.tokensToExp(tokens, vm)
-    expect(exp).toBe('"view-"+"a"+"-test-"+(ok)')
-  })
-
-  it('tokens to expression with filters, single expression', function () {
-    var tokens = textParser.parse('{{test | abc}}')
+  it('tokens to expression, single expression', function () {
+    var tokens = textParser.parse('{{test}}')
     var exp = textParser.tokensToExp(tokens)
-    expect(exp).toBe('test | abc')
+    // should not have parens so it can be treated as a
+    // simple path by the expression parser
+    expect(exp).toBe('test')
   })
 
   it('tokens to expression with filters, multiple expressions', function () {
-    var tokens = textParser.parse('a {{b | c d}} e')
+    var tokens = textParser.parse('a {{b | c d | f}} e')
     var exp = textParser.tokensToExp(tokens)
-    expect(exp).toBe('"a "+this.$options.filters["c"].apply(this,[b,"d"])+" e"')
+    var filters = dirParser.parse('b | c d | f').filters
+    expect(exp).toBe(
+      '"a "+this._applyFilters(b,null,' +
+        JSON.stringify(filters) +
+      ',false)+" e"')
   })
 
 })

@@ -1,19 +1,23 @@
 var _ = require('../util')
-var mergeOptions = require('../util/merge-option')
+var config = require('../config')
 
 /**
  * Expose useful internals
  */
 
 exports.util = _
+exports.config = config
+exports.set = _.set
+exports.delete = _.delete
 exports.nextTick = _.nextTick
-exports.config = require('../config')
 
-exports.compiler = {
-  compile: require('../compiler/compile'),
-  transclude: require('../compiler/transclude')
-}
+/**
+ * The following are exposed for advanced usage / plugins
+ */
 
+exports.compiler = require('../compiler')
+exports.FragmentFactory = require('../fragment/factory')
+exports.internalDirectives = require('../directives/internal')
 exports.parsers = {
   path: require('../parsers/path'),
   text: require('../parsers/text'),
@@ -32,7 +36,7 @@ exports.cid = 0
 var cid = 1
 
 /**
- * Class inehritance
+ * Class inheritance
  *
  * @param {Object} extendOptions
  */
@@ -40,11 +44,16 @@ var cid = 1
 exports.extend = function (extendOptions) {
   extendOptions = extendOptions || {}
   var Super = this
-  var Sub = createClass(extendOptions.name || 'VueComponent')
+  var isFirstExtend = Super.cid === 0
+  if (isFirstExtend && extendOptions._Ctor) {
+    return extendOptions._Ctor
+  }
+  var name = extendOptions.name || Super.options.name
+  var Sub = createClass(name || 'VueComponent')
   Sub.prototype = Object.create(Super.prototype)
   Sub.prototype.constructor = Sub
   Sub.cid = cid++
-  Sub.options = mergeOptions(
+  Sub.options = _.mergeOptions(
     Super.options,
     extendOptions
   )
@@ -53,7 +62,17 @@ exports.extend = function (extendOptions) {
   Sub.extend = Super.extend
   // create asset registers, so extended classes
   // can have their private assets too.
-  createAssetRegisters(Sub)
+  config._assetTypes.forEach(function (type) {
+    Sub[type] = Super[type]
+  })
+  // enable recursive self-lookup
+  if (name) {
+    Sub.options.components[name] = Sub
+  }
+  // cache constructor
+  if (isFirstExtend) {
+    extendOptions._Ctor = Sub
+  }
   return Sub
 }
 
@@ -68,7 +87,7 @@ exports.extend = function (extendOptions) {
 
 function createClass (name) {
   return new Function(
-    'return function ' + _.camelize(name, true) +
+    'return function ' + _.classify(name) +
     ' (options) { this._init(options) }'
   )()
 }
@@ -80,6 +99,10 @@ function createClass (name) {
  */
 
 exports.use = function (plugin) {
+  /* istanbul ignore if */
+  if (plugin.installed) {
+    return
+  }
   // additional parameters
   var args = _.toArray(arguments, 1)
   args.unshift(this)
@@ -88,59 +111,42 @@ exports.use = function (plugin) {
   } else {
     plugin.apply(null, args)
   }
+  plugin.installed = true
   return this
 }
 
 /**
- * Define asset registration methods on a constructor.
- *
- * @param {Function} Constructor
+ * Apply a global mixin by merging it into the default
+ * options.
  */
 
-var assetTypes = [
-  'directive',
-  'filter',
-  'partial',
-  'transition'
-]
+exports.mixin = function (mixin) {
+  var Vue = _.Vue
+  Vue.options = _.mergeOptions(Vue.options, mixin)
+}
 
-function createAssetRegisters (Constructor) {
+/**
+ * Create asset registration methods with the following
+ * signature:
+ *
+ * @param {String} id
+ * @param {*} definition
+ */
 
-  /* Asset registration methods share the same signature:
-   *
-   * @param {String} id
-   * @param {*} definition
-   */
-
-  assetTypes.forEach(function (type) {
-    Constructor[type] = function (id, definition) {
-      if (!definition) {
-        return this.options[type + 's'][id]
-      } else {
-        this.options[type + 's'][id] = definition
-      }
-    }
-  })
-
-  /**
-   * Component registration needs to automatically invoke
-   * Vue.extend on object values.
-   *
-   * @param {String} id
-   * @param {Object|Function} definition
-   */
-
-  Constructor.component = function (id, definition) {
+config._assetTypes.forEach(function (type) {
+  exports[type] = function (id, definition) {
     if (!definition) {
-      return this.options.components[id]
+      return this.options[type + 's'][id]
     } else {
-      if (_.isPlainObject(definition)) {
+      if (
+        type === 'component' &&
+        _.isPlainObject(definition)
+      ) {
         definition.name = id
         definition = _.Vue.extend(definition)
       }
-      this.options.components[id] = definition
+      this.options[type + 's'][id] = definition
+      return definition
     }
   }
-}
-
-createAssetRegisters(exports)
+})

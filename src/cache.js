@@ -15,7 +15,7 @@ function Cache (limit) {
   this.size = 0
   this.limit = limit
   this.head = this.tail = undefined
-  this._keymap = {}
+  this._keymap = Object.create(null)
 }
 
 var p = Cache.prototype
@@ -33,8 +33,8 @@ var p = Cache.prototype
 
 p.put = function (key, value) {
   var entry = {
-    key:key,
-    value:value
+    key: key,
+    value: value
   }
   this._keymap[key] = entry
   if (this.tail) {

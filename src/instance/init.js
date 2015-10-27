@@ -1,4 +1,5 @@
-var mergeOptions = require('../util/merge-option')
+var mergeOptions = require('../util').mergeOptions
+var uid = 0
 
 /**
  * The main init sequence. This is called for every
@@ -15,40 +16,73 @@ exports._init = function (options) {
 
   options = options || {}
 
-  this.$el           = null
-  this.$parent       = options._parent
-  this.$root         = options._root || this
-  this.$             = {} // child vm references
-  this.$$            = {} // element references
-  this._watcherList  = [] // all watchers as an array
-  this._watchers     = {} // internal watchers as a hash
-  this._userWatchers = {} // user watchers as a hash
-  this._directives   = [] // all directives
+  this.$el = null
+  this.$parent = options.parent
+  this.$root = this.$parent
+    ? this.$parent.$root
+    : this
+  this.$children = []
+  this.$refs = {}       // child vm references
+  this.$els = {}        // element references
+  this._watchers = []   // all watchers as an array
+  this._directives = [] // all directives
+
+  // a uid
+  this._uid = uid++
 
   // a flag to avoid this being observed
   this._isVue = true
 
   // events bookkeeping
-  this._events         = {}    // registered callbacks
-  this._eventsCount    = {}    // for $broadcast optimization
-  this._eventCancelled = false // for event cancellation
+  this._events = {}            // registered callbacks
+  this._eventsCount = {}       // for $broadcast optimization
+  this._shouldPropagate = false // for event propagation
 
-  // block instance properties
-  this._isBlock     = false
-  this._blockStart  =          // @type {CommentNode}
-  this._blockEnd    = null     // @type {CommentNode}
+  // fragment instance properties
+  this._isFragment = false
+  this._fragment =         // @type {DocumentFragment}
+  this._fragmentStart =    // @type {Text|Comment}
+  this._fragmentEnd = null // @type {Text|Comment}
 
   // lifecycle state
-  this._isCompiled  =
+  this._isCompiled =
   this._isDestroyed =
-  this._isReady     =
-  this._isAttached  =
+  this._isReady =
+  this._isAttached =
   this._isBeingDestroyed = false
+  this._unlinkFn = null
 
-  // children
-  this._children =         // @type {Array}
-  this._childCtors = null  // @type {Object} - hash to cache
-                           // child constructors
+  // context:
+  // if this is a transcluded component, context
+  // will be the common parent vm of this instance
+  // and its host.
+  this._context = options._context || this.$parent
+
+  // scope:
+  // if this is inside an inline v-for, the scope
+  // will be the intermediate scope created for this
+  // repeat fragment. this is used for linking props
+  // and container directives.
+  this._scope = options._scope
+
+  // fragment:
+  // if this instance is compiled inside a Fragment, it
+  // needs to reigster itself as a child of that fragment
+  // for attach/detach to work properly.
+  this._frag = options._frag
+  if (this._frag) {
+    this._frag.children.push(this)
+  }
+
+  // push self into parent / transclusion host
+  if (this.$parent) {
+    this.$parent.$children.push(this)
+  }
+
+  // set ref
+  if (options._ref) {
+    (this._scope || this._context).$refs[options._ref] = this
+  }
 
   // merge options.
   options = this.$options = mergeOptions(
@@ -57,11 +91,15 @@ exports._init = function (options) {
     this
   )
 
-  // set data after merge.
-  this._data = options.data || {}
+  // initialize data as empty object.
+  // it will be filled up in _initScope().
+  this._data = {}
+
+  // call init hook
+  this._callHook('init')
 
   // initialize data observation and scope inheritance.
-  this._initScope()
+  this._initState()
 
   // setup event system and option events.
   this._initEvents()

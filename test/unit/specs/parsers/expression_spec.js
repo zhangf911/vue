@@ -3,19 +3,10 @@ var _ = require('../../../../src/util')
 
 var testCases = [
   {
-    // simple path that doesn't exist
-    exp: 'a.b.c',
-    scope: {
-      a: {}
-    },
-    expected: undefined,
-    paths: ['a']
-  },
-  {
-    // simple path that exists
+    // simple path
     exp: 'a.b.d',
     scope: {
-      a:{b:{d:123}}
+      a: {b: {d: 123}}
     },
     expected: 123,
     paths: ['a']
@@ -24,7 +15,7 @@ var testCases = [
   {
     exp: 'a["b"].c',
     scope: {
-      a:{b:{c:234}}
+      a: {b: {c: 234}}
     },
     expected: 234,
     paths: ['a']
@@ -70,6 +61,12 @@ var testCases = [
     },
     expected: 'inline hel\nlo',
     paths: ['a']
+  },
+  {
+    // multiline expressions
+    exp: "{\n a: '35',\n b: c}",
+    scope: {c: 32},
+    expected: { a: '35', b: 32 }
   },
   {
     // dollar signs and underscore
@@ -152,7 +149,7 @@ var testCases = [
     paths: ['a']
   },
   {
-    //keyowrd + keyword literal
+    // keyowrd + keyword literal
     exp: 'true && a.true',
     scope: {
       a: { 'true': false }
@@ -175,13 +172,66 @@ var testCases = [
     },
     expected: 8,
     paths: ['$a', 'b', 'c', 'e']
+  },
+  {
+    // Math global, simple path
+    exp: 'Math.PI',
+    scope: {},
+    expected: Math.PI,
+    paths: []
+  },
+  {
+    // Math global, exp
+    exp: 'Math.sin(a)',
+    scope: {
+      a: 1
+    },
+    expected: Math.sin(1),
+    paths: ['a']
+  },
+  {
+    // boolean literal
+    exp: 'true',
+    scope: {
+      true: false
+    },
+    expected: true,
+    paths: []
+  },
+  {
+    // Date global
+    exp: 'Date.now() > new Date("2000-01-01")',
+    scope: {},
+    expected: true,
+    paths: []
+  },
+  // typeof operator
+  {
+    exp: 'typeof test === "string"',
+    scope: { test: '123' },
+    expected: true,
+    paths: ['test']
+  },
+  // isNaN
+  {
+    exp: 'isNaN(a)',
+    scope: { a: 2 },
+    expected: false,
+    paths: ['a']
+  },
+  // parseFloat & parseInt
+  {
+    exp: 'parseInt(a, 10) + parseFloat(b)',
+    scope: { a: 2.33, b: '3.45' },
+    expected: 5.45,
+    paths: ['a', 'b']
   }
 ]
 
 describe('Expression Parser', function () {
-  
-  it('parse getter', function () {
-    testCases.forEach(function assertExp (testCase) {
+
+  testCases.forEach(function (testCase) {
+    it('parse getter: ' + testCase.exp, function () {
       var res = expParser.parse(testCase.exp, true)
       expect(res.get(testCase.scope)).toEqual(testCase.expected)
     })
@@ -206,7 +256,7 @@ describe('Expression Parser', function () {
     expect(function () {
       res.set(scope, 123)
     }).not.toThrow()
-    scope.a = {b:{c:0}}
+    scope.a = {b: {c: 0}}
     res.set(scope, 123)
     expect(scope.a.b.c).toBe(123)
   })
@@ -218,22 +268,30 @@ describe('Expression Parser', function () {
   })
 
   describe('invalid expression', function () {
-    
+
     beforeEach(function () {
       spyOn(_, 'warn')
     })
 
     it('should warn on invalid expression', function () {
-      var res = expParser.parse('a--b"ffff')
-      expect(_.warn).toHaveBeenCalled()
+      expect(_.warn).not.toHaveBeenCalled()
+      expParser.parse('a--b"ffff')
+      expect(hasWarned(_, 'Invalid expression')).toBe(true)
     })
 
     if (leftHandThrows()) {
       it('should warn on invalid left hand expression for setter', function () {
-        var res = expParser.parse('a+b', true)
-        expect(_.warn).toHaveBeenCalled()
+        expect(_.warn).not.toHaveBeenCalled()
+        expParser.parse('a+b', true)
+        expect(hasWarned(_, 'Invalid setter function body')).toBe(true)
       })
     }
+
+    it('should warn if expression contains improper reserved keywords', function () {
+      expect(_.warn).not.toHaveBeenCalled()
+      expParser.parse('break + 1')
+      expect(hasWarned(_, 'Avoid using reserved keywords')).toBe(true)
+    })
   })
 })
 
@@ -244,7 +302,7 @@ describe('Expression Parser', function () {
 
 function leftHandThrows () {
   try {
-    var fn = new Function('a + b = 1')
+    new Function('a + b = 1')
   } catch (e) {
     return true
   }

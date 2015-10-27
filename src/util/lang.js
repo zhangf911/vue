@@ -1,12 +1,88 @@
 /**
- * Check is a string starts with $ or _
+ * Set a property on an object. Adds the new property and
+ * triggers change notification if the property doesn't
+ * already exist.
+ *
+ * @param {Object} obj
+ * @param {String} key
+ * @param {*} val
+ * @public
+ */
+
+exports.set = function set (obj, key, val) {
+  if (obj.hasOwnProperty(key)) {
+    obj[key] = val
+    return
+  }
+  if (obj._isVue) {
+    set(obj._data, key, val)
+    return
+  }
+  var ob = obj.__ob__
+  if (!ob) {
+    obj[key] = val
+    return
+  }
+  ob.convert(key, val)
+  ob.notify()
+  if (ob.vms) {
+    var i = ob.vms.length
+    while (i--) {
+      var vm = ob.vms[i]
+      vm._proxy(key)
+      vm._digest()
+    }
+  }
+}
+
+/**
+ * Delete a property and trigger change if necessary.
+ *
+ * @param {Object} obj
+ * @param {String} key
+ */
+
+exports.delete = function (obj, key) {
+  if (!obj.hasOwnProperty(key)) {
+    return
+  }
+  delete obj[key]
+  var ob = obj.__ob__
+  if (!ob) {
+    return
+  }
+  ob.notify()
+  if (ob.vms) {
+    var i = ob.vms.length
+    while (i--) {
+      var vm = ob.vms[i]
+      vm._unproxy(key)
+      vm._digest()
+    }
+  }
+}
+
+/**
+ * Check if an expression is a literal value.
+ *
+ * @param {String} exp
+ * @return {Boolean}
+ */
+
+var literalValueRE = /^\s?(true|false|[\d\.]+|'[^']*'|"[^"]*")\s?$/
+exports.isLiteral = function (exp) {
+  return literalValueRE.test(exp)
+}
+
+/**
+ * Check if a string starts with $ or _
  *
  * @param {String} str
  * @return {Boolean}
  */
 
 exports.isReserved = function (str) {
-  var c = str.charCodeAt(0)
+  var c = (str + '').charCodeAt(0)
   return c === 0x24 || c === 0x5F
 }
 
@@ -25,20 +101,37 @@ exports.toString = function (value) {
 }
 
 /**
- * Check and convert possible numeric numbers before
- * setting back to data
+ * Check and convert possible numeric strings to numbers
+ * before setting back to data
  *
  * @param {*} value
  * @return {*|Number}
  */
 
 exports.toNumber = function (value) {
-  return (
-    isNaN(value) ||
-    value === null ||
-    typeof value === 'boolean'
-  ) ? value
-    : Number(value)
+  if (typeof value !== 'string') {
+    return value
+  } else {
+    var parsed = Number(value)
+    return isNaN(parsed)
+      ? value
+      : parsed
+  }
+}
+
+/**
+ * Convert string boolean literals into real booleans.
+ *
+ * @param {*} value
+ * @return {*|Boolean}
+ */
+
+exports.toBoolean = function (value) {
+  return value === 'true'
+    ? true
+    : value === 'false'
+      ? false
+      : value
 }
 
 /**
@@ -53,7 +146,7 @@ exports.stripQuotes = function (str) {
   var b = str.charCodeAt(str.length - 1)
   return a === b && (a === 0x22 || a === 0x27)
     ? str.slice(1, -1)
-    : false
+    : str
 }
 
 /**
@@ -63,14 +156,42 @@ exports.stripQuotes = function (str) {
  * @return {String}
  */
 
-var camelRE = /[-_](\w)/g
-var capitalCamelRE = /(?:^|[-_])(\w)/g
+exports.camelize = function (str) {
+  return str.replace(/-(\w)/g, toUpper)
+}
 
-exports.camelize = function (str, cap) {
-  var RE = cap ? capitalCamelRE : camelRE
-  return str.replace(RE, function (_, c) {
-    return c ? c.toUpperCase () : ''
-  })
+function toUpper (_, c) {
+  return c ? c.toUpperCase() : ''
+}
+
+/**
+ * Hyphenate a camelCase string.
+ *
+ * @param {String} str
+ * @return {String}
+ */
+
+exports.hyphenate = function (str) {
+  return str
+    .replace(/([a-z\d])([A-Z])/g, '$1-$2')
+    .toLowerCase()
+}
+
+/**
+ * Converts hyphen/underscore/slash delimitered names into
+ * camelized classNames.
+ *
+ * e.g. my-component => MyComponent
+ *      some_else    => SomeElse
+ *      some/comp    => SomeComp
+ *
+ * @param {String} str
+ * @return {String}
+ */
+
+var classifyRE = /(?:^|[-_\/])(\w)/g
+exports.classify = function (str) {
+  return str.replace(classifyRE, toUpper)
 }
 
 /**
@@ -82,8 +203,13 @@ exports.camelize = function (str, cap) {
  */
 
 exports.bind = function (fn, ctx) {
-  return function () {
-    return fn.apply(ctx, arguments)
+  return function (a) {
+    var l = arguments.length
+    return l
+      ? l > 1
+        ? fn.apply(ctx, arguments)
+        : fn.call(ctx, a)
+      : fn.call(ctx)
   }
 }
 
@@ -113,8 +239,10 @@ exports.toArray = function (list, start) {
  */
 
 exports.extend = function (to, from) {
-  for (var key in from) {
-    to[key] = from[key]
+  var keys = Object.keys(from)
+  var i = keys.length
+  while (i--) {
+    to[keys[i]] = from[keys[i]]
   }
   return to
 }
@@ -129,7 +257,7 @@ exports.extend = function (to, from) {
  */
 
 exports.isObject = function (obj) {
-  return obj && typeof obj === 'object'
+  return obj !== null && typeof obj === 'object'
 }
 
 /**
@@ -141,8 +269,9 @@ exports.isObject = function (obj) {
  */
 
 var toString = Object.prototype.toString
+var OBJECT_STRING = '[object Object]'
 exports.isPlainObject = function (obj) {
-  return toString.call(obj) === '[object Object]'
+  return toString.call(obj) === OBJECT_STRING
 }
 
 /**
@@ -152,9 +281,7 @@ exports.isPlainObject = function (obj) {
  * @return {Boolean}
  */
 
-exports.isArray = function (obj) {
-  return Array.isArray(obj)
-}
+exports.isArray = Array.isArray
 
 /**
  * Define a non-enumerable property
@@ -167,9 +294,95 @@ exports.isArray = function (obj) {
 
 exports.define = function (obj, key, val, enumerable) {
   Object.defineProperty(obj, key, {
-    value        : val,
-    enumerable   : !!enumerable,
-    writable     : true,
-    configurable : true
+    value: val,
+    enumerable: !!enumerable,
+    writable: true,
+    configurable: true
   })
+}
+
+/**
+ * Debounce a function so it only gets called after the
+ * input stops arriving after the given wait period.
+ *
+ * @param {Function} func
+ * @param {Number} wait
+ * @return {Function} - the debounced function
+ */
+
+exports.debounce = function (func, wait) {
+  var timeout, args, context, timestamp, result
+  var later = function () {
+    var last = Date.now() - timestamp
+    if (last < wait && last >= 0) {
+      timeout = setTimeout(later, wait - last)
+    } else {
+      timeout = null
+      result = func.apply(context, args)
+      if (!timeout) context = args = null
+    }
+  }
+  return function () {
+    context = this
+    args = arguments
+    timestamp = Date.now()
+    if (!timeout) {
+      timeout = setTimeout(later, wait)
+    }
+    return result
+  }
+}
+
+/**
+ * Manual indexOf because it's slightly faster than
+ * native.
+ *
+ * @param {Array} arr
+ * @param {*} obj
+ */
+
+exports.indexOf = function (arr, obj) {
+  var i = arr.length
+  while (i--) {
+    if (arr[i] === obj) return i
+  }
+  return -1
+}
+
+/**
+ * Make a cancellable version of an async callback.
+ *
+ * @param {Function} fn
+ * @return {Function}
+ */
+
+exports.cancellable = function (fn) {
+  var cb = function () {
+    if (!cb.cancelled) {
+      return fn.apply(this, arguments)
+    }
+  }
+  cb.cancel = function () {
+    cb.cancelled = true
+  }
+  return cb
+}
+
+/**
+ * Check if two values are loosely equal - that is,
+ * if they are plain objects, do they have the same shape?
+ *
+ * @param {*} a
+ * @param {*} b
+ * @return {Boolean}
+ */
+
+exports.looseEqual = function (a, b) {
+  /* eslint-disable eqeqeq */
+  return a == b || (
+    exports.isObject(a) && exports.isObject(b)
+      ? JSON.stringify(a) === JSON.stringify(b)
+      : false
+  )
+  /* eslint-enable eqeqeq */
 }

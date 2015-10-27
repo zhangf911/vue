@@ -4,10 +4,10 @@ var templateCache = new Cache(1000)
 var idSelectorCache = new Cache(1000)
 
 var map = {
-  _default : [0, '', ''],
-  legend   : [1, '<fieldset>', '</fieldset>'],
-  tr       : [2, '<table><tbody>', '</tbody></table>'],
-  col      : [
+  _default: [0, '', ''],
+  legend: [1, '<fieldset>', '</fieldset>'],
+  tr: [2, '<table><tbody>', '</tbody></table>'],
+  col: [
     2,
     '<table><tbody></tbody><colgroup>',
     '</colgroup></table>'
@@ -56,8 +56,21 @@ map.rect = [
   '</svg>'
 ]
 
+/**
+ * Check if a node is a supported template node with a
+ * DocumentFragment content.
+ *
+ * @param {Node} node
+ * @return {Boolean}
+ */
+
+function isRealTemplate (node) {
+  return _.isTemplate(node) &&
+    node.content instanceof DocumentFragment
+}
+
 var tagRE = /<([\w:]+)/
-var entityRE = /&\w+;/
+var entityRE = /&\w+;|&#\d+;|&#x[\dA-F]+;/
 
 /**
  * Convert a string template to a DocumentFragment.
@@ -86,12 +99,12 @@ function stringToFragment (templateString) {
     )
   } else {
 
-    var tag    = tagMatch && tagMatch[1]
-    var wrap   = map[tag] || map._default
-    var depth  = wrap[0]
+    var tag = tagMatch && tagMatch[1]
+    var wrap = map[tag] || map._default
+    var depth = wrap[0]
     var prefix = wrap[1]
     var suffix = wrap[2]
-    var node   = document.createElement('div')
+    var node = document.createElement('div')
 
     node.innerHTML = prefix + templateString.trim() + suffix
     while (depth--) {
@@ -99,8 +112,9 @@ function stringToFragment (templateString) {
     }
 
     var child
-    /* jshint boss:true */
+    /* eslint-disable no-cond-assign */
     while (child = node.firstChild) {
+    /* eslint-enable no-cond-assign */
       frag.appendChild(child)
     }
   }
@@ -117,38 +131,53 @@ function stringToFragment (templateString) {
  */
 
 function nodeToFragment (node) {
-  var tag = node.tagName
   // if its a template tag and the browser supports it,
   // its content is already a document fragment.
-  if (
-    tag === 'TEMPLATE' &&
-    node.content instanceof DocumentFragment
-  ) {
+  if (isRealTemplate(node)) {
+    _.trimNode(node.content)
     return node.content
   }
-  return tag === 'SCRIPT'
-    ? stringToFragment(node.textContent)
-    : stringToFragment(node.innerHTML)
+  // script template
+  if (node.tagName === 'SCRIPT') {
+    return stringToFragment(node.textContent)
+  }
+  // normal node, clone it to avoid mutating the original
+  var clone = exports.clone(node)
+  var frag = document.createDocumentFragment()
+  var child
+  /* eslint-disable no-cond-assign */
+  while (child = clone.firstChild) {
+  /* eslint-enable no-cond-assign */
+    frag.appendChild(child)
+  }
+  _.trimNode(frag)
+  return frag
 }
 
 // Test for the presence of the Safari template cloning bug
 // https://bugs.webkit.org/show_bug.cgi?id=137755
-var hasBrokenTemplate = _.inBrowser
-  ? (function () {
-      var a = document.createElement('div')
-      a.innerHTML = '<template>1</template>'
-      return !a.cloneNode(true).firstChild.innerHTML
-    })()
-  : false
+var hasBrokenTemplate = (function () {
+  /* istanbul ignore else */
+  if (_.inBrowser) {
+    var a = document.createElement('div')
+    a.innerHTML = '<template>1</template>'
+    return !a.cloneNode(true).firstChild.innerHTML
+  } else {
+    return false
+  }
+})()
 
 // Test for IE10/11 textarea placeholder clone bug
-var hasTextareaCloneBug = _.inBrowser
-  ? (function () {
-      var t = document.createElement('textarea')
-      t.placeholder = 't'
-      return t.cloneNode(true).value === 't'
-    })()
-  : false
+var hasTextareaCloneBug = (function () {
+  /* istanbul ignore else */
+  if (_.inBrowser) {
+    var t = document.createElement('textarea')
+    t.placeholder = 't'
+    return t.cloneNode(true).value === 't'
+  } else {
+    return false
+  }
+})()
 
 /**
  * 1. Deal with Safari cloning nested <template> bug by
@@ -161,17 +190,25 @@ var hasTextareaCloneBug = _.inBrowser
  */
 
 exports.clone = function (node) {
+  if (!node.querySelectorAll) {
+    return node.cloneNode()
+  }
   var res = node.cloneNode(true)
   var i, original, cloned
   /* istanbul ignore if */
   if (hasBrokenTemplate) {
+    var clone = res
+    if (isRealTemplate(node)) {
+      node = node.content
+      clone = res.content
+    }
     original = node.querySelectorAll('template')
     if (original.length) {
-      cloned = res.querySelectorAll('template')
+      cloned = clone.querySelectorAll('template')
       i = cloned.length
       while (i--) {
         cloned[i].parentNode.replaceChild(
-          original[i].cloneNode(true),
+          exports.clone(original[i]),
           cloned[i]
         )
       }
@@ -217,8 +254,9 @@ exports.parse = function (template, clone, noSelector) {
   // if the template is already a document fragment,
   // do nothing
   if (template instanceof DocumentFragment) {
+    _.trimNode(template)
     return clone
-      ? template.cloneNode(true)
+      ? exports.clone(template)
       : template
   }
 
